@@ -21,6 +21,11 @@ type HtmlMetadata = {
 
 const officialQuery = "(site:reelshort.com OR site:dramabox.com OR site:dramaboxdb.com OR site:netshort.com)";
 const excludedQuery = "-review -recap -explained -trailer -reaction -teaser";
+const platformDomains: Record<string, { name: string; sites: string[] }> = {
+  reelshort: { name: "ReelShort", sites: ["reelshort.com"] },
+  dramabox: { name: "DramaBox", sites: ["dramabox.com", "dramaboxdb.com"] },
+  netshort: { name: "NetShort", sites: ["netshort.com"] },
+};
 
 function absoluteUrl(value: string | undefined, base: string) {
   if (!value) return undefined;
@@ -88,4 +93,55 @@ export async function searchOfficialPagesWithSerpApi(query: string): Promise<Liv
     id: resource.id.replace(/^firecrawl:/, "serpapi:"),
     discoverySource: "official_api" as const,
   }));
+}
+
+export async function discoverOfficialPlatformPages(platformId: "reelshort" | "dramabox" | "netshort"): Promise<LiveSearchResource[]> {
+  const apiKey = process.env.SERPAPI_KEY;
+  const platform = platformDomains[platformId];
+  if (!apiKey || !platform) return [];
+
+  const url = new URL("https://serpapi.com/search.json");
+  const siteQuery = platform.sites.map((site) => `site:${site}`).join(" OR ");
+  url.searchParams.set("engine", "google");
+  url.searchParams.set("q", `(${siteQuery}) ("full episodes" OR "watch" OR "short drama" OR "drama") ${excludedQuery}`);
+  url.searchParams.set("num", "10");
+  url.searchParams.set("api_key", apiKey);
+
+  const response = await fetch(url, { signal: AbortSignal.timeout(20000) });
+  if (!response.ok) throw new Error(`SerpAPI discovery failed: ${response.status}`);
+  const payload = await response.json() as SerpApiResponse;
+  const candidates = (payload.organic_results ?? []).filter((item) => item.link);
+  const enriched = await Promise.all(candidates.map(async (item) => {
+    const page = await readHtmlMetadata(item.link!);
+    return { item, page };
+  }));
+
+  const seen = new Set<string>();
+  return enriched.flatMap(({ item, page }) => {
+    const link = item.link!;
+    const title = (page.title ?? item.title ?? "").replace(/\s*[-|]\s*(ReelShort|DramaBox|NetShort).*$/i, "").trim();
+    const description = page.description ?? item.snippet ?? "";
+    if (!page.image || !title) return [];
+    if (/\b(review|recap|explained|reaction|trailer|teaser|commentary|preview)\b|解说|讲解|影评|预告|花絮|混剪/i.test(`${title} ${description}`)) return [];
+    try {
+      const parsed = new URL(link);
+      if (seen.has(parsed.pathname)) return [];
+      seen.add(parsed.pathname);
+    } catch {
+      return [];
+    }
+    const fullSeries = /full|complete|all episodes|全集|完整版|全剧|full-episodes/i.test(`${link} ${title} ${description}`);
+    return [{
+      id: `serpapi:discover:${platformId}:${encodeURIComponent(link)}`,
+      platformId,
+      title,
+      url: link,
+      thumbnailUrl: page.image,
+      uploader: `${platform.name} 官方站`,
+      contentType: fullSeries ? "full_series" : "episode",
+      verifiedOfficial: true,
+      discoverySource: "official_api",
+      description: description.trim() || undefined,
+    } satisfies LiveSearchResource];
+  }).slice(0, 8);
 }
