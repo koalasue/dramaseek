@@ -26,7 +26,7 @@ export function sanitizeSubtitleSettings(value: unknown): SubtitleSettings {
   const defaults = defaultSubtitleSettings;
   return {
     model: ["auto", "fast", "accurate"].includes(String(candidate.model)) ? candidate.model! : defaults.model,
-    sourceMode: ["auto", "captions", "audio"].includes(String(candidate.sourceMode)) ? candidate.sourceMode! : defaults.sourceMode,
+    sourceMode: ["auto", "captions", "ocr", "audio"].includes(String(candidate.sourceMode)) ? candidate.sourceMode! : defaults.sourceMode,
     subtitle: {
       mode: subtitle.mode === "floating" ? "floating" : "fixed",
       fontSize: numberIn(subtitle.fontSize, 14, 42, defaults.subtitle.fontSize),

@@ -73,12 +73,12 @@ export async function searchOfficialPagesWithSerpApi(query: string): Promise<Liv
       url: item.link,
       title: page.title ?? item.title,
       description: page.description ?? item.snippet,
-      image: page.image ?? item.thumbnail,
+      image: page.image,
       metadata: {
         sourceURL: item.link,
         title: page.title ?? item.title,
         description: page.description ?? item.snippet,
-        ogImage: page.image ?? item.thumbnail,
+        ogImage: page.image,
       },
     };
   }));

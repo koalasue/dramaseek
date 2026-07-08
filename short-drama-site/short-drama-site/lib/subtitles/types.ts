@@ -1,4 +1,4 @@
-export type TranslationStatus = "idle" | "requesting" | "loading_model" | "listening" | "translating" | "error";
+export type TranslationStatus = "idle" | "requesting" | "loading_model" | "reading_ocr" | "listening" | "translating" | "error";
 export type SubtitleMode = "fixed" | "floating";
 export type ModelProfile = "auto" | "fast" | "accurate";
 
@@ -50,5 +50,5 @@ export interface SubtitleSettings {
   subtitle: SubtitlePreferences;
   button: FloatingButtonPreferences;
   model: ModelProfile;
-  sourceMode: "auto" | "captions" | "audio";
+  sourceMode: "auto" | "captions" | "ocr" | "audio";
 }

@@ -27,8 +27,8 @@ export async function GET() {
       const platformResources = resources.filter((resource) => resource.platformId === platform.id);
       const signal = discussion.find((item) => item.dramaId === drama.id);
       if (!platformResources.length && !signal) return [];
-      const allRealImages = [...platformResources, ...resources].map((resource) => resource.thumbnailUrl).filter(Boolean);
-      const posterUrl = allRealImages[0] ?? signal?.thumbnailUrl;
+      const platformImages = platformResources.map((resource) => resource.thumbnailUrl).filter(Boolean);
+      const posterUrl = platformImages[0] ?? signal?.thumbnailUrl;
       if (!posterUrl) return [];
       const metricResources = (platformResources.length ? platformResources : resources) as LiveSearchResource[];
       const views = metricResources.reduce((sum, resource) => sum + (resource.viewCount ?? 0), 0);

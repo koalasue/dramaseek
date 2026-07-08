@@ -6,6 +6,11 @@ import { defaultSubtitleSettings, readSubtitleSettings, SUBTITLE_SETTINGS_KEY } 
 import type { SubtitleCue, SubtitleSettings, TranslationSession } from "@/lib/subtitles/types";
 
 const SAMPLE_RATE = 16_000;
+const OCR_INTERVAL_MS = 2600;
+
+type TesseractModule = {
+  recognize: (image: CanvasImageSource, language?: string, options?: object) => Promise<{ data?: { text?: string; confidence?: number } }>;
+};
 
 function largestVideo() {
   return [...document.querySelectorAll("video, iframe[data-video-frame]")].filter((item) => {
@@ -22,13 +27,61 @@ function rgba(hex: string, opacity: number) {
 }
 
 async function translate(text: string) {
-  if (typeof LanguageDetector === "undefined" || typeof Translator === "undefined") throw new Error("本地翻译需要 Chrome 138 或更高版本");
+  if (typeof LanguageDetector === "undefined" || typeof Translator === "undefined") return { text, language: "und", translated: false };
   const detector = await LanguageDetector.create();
   const [result] = await detector.detect(text);
   const language = result?.detectedLanguage ?? "en";
-  if (language.startsWith("zh")) return { text, language };
+  if (language.startsWith("zh")) return { text, language, translated: true };
   const translator = await Translator.create({ sourceLanguage: language, targetLanguage: "zh-Hans" });
-  return { text: await translator.translate(text), language };
+  return { text: await translator.translate(text), language, translated: true };
+}
+
+function shouldUseMicrophoneFirst() {
+  return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) || !navigator.mediaDevices.getDisplayMedia;
+}
+
+async function captureAudio(stopTracks: () => void) {
+  if (shouldUseMicrophoneFirst()) return navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true }, video: false });
+  const display = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+  if (display.getAudioTracks().length) return display;
+  display.getTracks().forEach((track) => track.stop());
+  stopTracks();
+  return navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true }, video: false });
+}
+
+async function readOcrText(source: HTMLVideoElement) {
+  if (!source.videoWidth || !source.videoHeight) return "";
+  const cropY = Math.floor(source.videoHeight * 0.58);
+  const cropHeight = Math.floor(source.videoHeight * 0.34);
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.min(960, source.videoWidth);
+  canvas.height = Math.round(canvas.width * cropHeight / source.videoWidth);
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (!context) return "";
+  context.filter = "contrast(1.35) saturate(0.85)";
+  context.drawImage(source, 0, cropY, source.videoWidth, cropHeight, 0, 0, canvas.width, canvas.height);
+  const moduleUrl = "https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/+esm";
+  const tesseract = await import(/* webpackIgnore: true */ moduleUrl) as TesseractModule;
+  const result = await tesseract.recognize(canvas, "eng+spa+fra+kor+jpn");
+  return (result.data?.text ?? "").replace(/\s+/g, " ").trim();
+}
+
+async function createOcrSource(target: Element) {
+  if (target instanceof HTMLVideoElement) return { video: target, cleanup: () => {} };
+  if (!navigator.mediaDevices.getDisplayMedia) throw new Error("当前浏览器无法截取外部平台画面，请改用音频识别");
+  const capture = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+  const video = document.createElement("video");
+  video.muted = true;
+  video.playsInline = true;
+  video.srcObject = capture;
+  await video.play();
+  return {
+    video,
+    cleanup: () => {
+      capture.getTracks().forEach((track) => track.stop());
+      video.srcObject = null;
+    },
+  };
 }
 
 export function VideoSubtitleEnhancer() {
@@ -42,6 +95,7 @@ export function VideoSubtitleEnhancer() {
   const context = useRef<AudioContext | null>(null), processor = useRef<ScriptProcessorNode | null>(null);
   const samples = useRef<number[]>([]), busy = useRef(false), dragged = useRef(false);
   const captionCleanup = useRef<(() => void) | null>(null);
+  const ocrCleanup = useRef<(() => void) | null>(null);
 
   useEffect(() => setSettings(readSubtitleSettings(localStorage)), []);
   useEffect(() => { localStorage.setItem(SUBTITLE_SETTINGS_KEY, JSON.stringify(settings)); }, [settings]);
@@ -54,6 +108,7 @@ export function VideoSubtitleEnhancer() {
 
   const stop = useCallback(() => {
     captionCleanup.current?.(); captionCleanup.current = null;
+    ocrCleanup.current?.(); ocrCleanup.current = null;
     processor.current?.disconnect(); processor.current = null; void context.current?.close(); context.current = null;
     stream.current?.getTracks().forEach((track) => track.stop()); stream.current = null;
     worker.current?.terminate(); worker.current = null; samples.current = []; busy.current = false; setCue(null);
@@ -73,16 +128,50 @@ export function VideoSubtitleEnhancer() {
           const startedAt = Date.now();
           void translate(activeCue.text).then((output) => {
             const next = { id: crypto.randomUUID(), startedAt, endedAt: Date.now(), detectedLanguage: output.language, translatedText: output.text, confidence: 1 };
-            setCue(next); setSession((current) => ({ ...current, status: "listening", detectedLanguage: output.language, currentCue: next, latencyMs: Date.now() - startedAt }));
+            setCue(next); setSession((current) => ({ ...current, status: "listening", detectedLanguage: output.language, currentCue: next, latencyMs: Date.now() - startedAt, error: output.translated ? undefined : "当前浏览器不支持本地翻译，已先显示识别到的原字幕。" }));
           }).catch((error) => setSession((current) => ({ ...current, status: "error", error: error instanceof Error ? error.message : "字幕翻译失败" })));
         };
         track.addEventListener("cuechange", onCue); captionCleanup.current = () => track.removeEventListener("cuechange", onCue);
         setSession({ status: "listening", model: settings.model }); onCue(); return;
       }
+      if (settings.sourceMode !== "audio" && settings.sourceMode !== "captions") {
+        try {
+          const source = await createOcrSource(target!);
+          let lastText = "";
+          let disposed = false;
+          const run = async () => {
+            if (disposed || busy.current) return;
+            try {
+              busy.current = true; setSession((current) => ({ ...current, status: "reading_ocr", error: source.video === target ? undefined : "请在共享窗口里保持视频可见，系统会识别画面底部字幕。" }));
+              const rawText = await readOcrText(source.video);
+              if (rawText && rawText !== lastText) {
+                lastText = rawText;
+                const startedAt = Date.now();
+                const output = await translate(rawText);
+                const next = { id: crypto.randomUUID(), startedAt, endedAt: Date.now(), detectedLanguage: output.language, translatedText: output.text, confidence: 0.8 };
+                setCue(next); setSession((current) => ({ ...current, status: "listening", detectedLanguage: output.language, currentCue: next, latencyMs: Date.now() - startedAt, error: output.translated ? undefined : "已识别画面文字；当前浏览器不支持本地翻译，先显示原文。" }));
+              } else {
+                setSession((current) => ({ ...current, status: "reading_ocr" }));
+              }
+            } catch (error) {
+              const message = error instanceof Error ? error.message : "画面字幕 OCR 失败";
+              if (settings.sourceMode === "ocr") setSession({ status: "error", model: settings.model, error: message });
+              else throw new Error(message);
+            } finally {
+              busy.current = false;
+            }
+          };
+          const timer = window.setInterval(() => void run().catch(() => {}), OCR_INTERVAL_MS);
+          ocrCleanup.current = () => { disposed = true; window.clearInterval(timer); source.cleanup(); };
+          setSession({ status: "reading_ocr", model: settings.model }); void run();
+          return;
+        } catch (error) {
+          if (settings.sourceMode === "ocr") throw error;
+          setSession((current) => ({ ...current, error: "画面字幕 OCR 不可用，已切换到音频识别。" }));
+        }
+      }
       if (settings.sourceMode === "captions") throw new Error("该视频没有可读取的字幕轨，请切换为“播放音频识别”");
-      const media = navigator.mediaDevices.getDisplayMedia
-        ? await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true })
-        : await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true }, video: false });
+      const media = await captureAudio(stop);
       if (!media.getAudioTracks().length) { media.getTracks().forEach((track) => track.stop()); throw new Error("电脑请勾选“共享音频”；手机请允许麦克风收音"); }
       stream.current = media; media.getTracks().forEach((track) => track.addEventListener("ended", stop, { once: true }));
       const localWorker = new Worker(new URL("../workers/transcription.worker.ts", import.meta.url), { type: "module" }); worker.current = localWorker;
@@ -94,7 +183,7 @@ export function VideoSubtitleEnhancer() {
             if (!event.data.text) return;
             const output = await translate(event.data.text);
             const next = { id: crypto.randomUUID(), startedAt: event.data.startedAt ?? Date.now(), endedAt: Date.now(), detectedLanguage: output.language, translatedText: output.text, confidence: 1 };
-            setCue(next); setSession((current) => ({ ...current, status: "listening", detectedLanguage: output.language, currentCue: next, latencyMs: Date.now() - next.startedAt }));
+            setCue(next); setSession((current) => ({ ...current, status: "listening", detectedLanguage: output.language, currentCue: next, latencyMs: Date.now() - next.startedAt, error: output.translated ? undefined : "当前浏览器不支持本地翻译，已先显示识别到的原文。" }));
           } catch (error) { setSession((current) => ({ ...current, status: "error", error: error instanceof Error ? error.message : "翻译失败" })); }
           finally { busy.current = false; }
         }
@@ -127,14 +216,15 @@ export function VideoSubtitleEnhancer() {
   };
 
   return <>
-    {cue && <div role="status" aria-live="polite" className="fixed -translate-x-1/2 -translate-y-1/2 rounded-xl px-4 py-2" style={{ zIndex: 70, left: subtitle.mode === "floating" ? `${subtitle.floatingX}%` : box.left + box.width / 2, top: subtitle.mode === "floating" ? `${subtitle.floatingY}%` : box.bottom - subtitle.verticalOffset, width: `${subtitle.width}%`, maxWidth: box.width * subtitle.width / 100, color: subtitle.color, background: rgba(subtitle.background, subtitle.backgroundOpacity), fontSize: subtitle.fontSize, fontWeight: subtitle.fontWeight, textAlign: subtitle.align, lineHeight: 1.45, textShadow: subtitle.shadow ? "0 2px 6px #000" : "none", WebkitTextStroke: subtitle.outline ? "1px rgba(0,0,0,.72)" : "0", display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitLineClamp: subtitle.maxLines, overflow: "hidden" }}>{cue.translatedText}</div>}
-    <div className="fixed" style={{ zIndex: 72, left: buttonLeft, top: buttonTop }}>
+    {cue && <div role="status" aria-live="polite" className="fixed -translate-x-1/2 -translate-y-1/2 rounded-xl px-4 py-2" style={{ zIndex: 9997, left: subtitle.mode === "floating" ? `${subtitle.floatingX}%` : box.left + box.width / 2, top: subtitle.mode === "floating" ? `${subtitle.floatingY}%` : box.bottom - subtitle.verticalOffset, width: `${subtitle.width}%`, maxWidth: box.width * subtitle.width / 100, color: subtitle.color, background: rgba(subtitle.background, subtitle.backgroundOpacity), fontSize: subtitle.fontSize, fontWeight: subtitle.fontWeight, textAlign: subtitle.align, lineHeight: 1.45, textShadow: subtitle.shadow ? "0 2px 6px #000" : "none", WebkitTextStroke: subtitle.outline ? "1px rgba(0,0,0,.72)" : "0", display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitLineClamp: subtitle.maxLines, overflow: "hidden" }}>{cue.translatedText}</div>}
+    <div className="fixed" style={{ zIndex: 9998, left: buttonLeft, top: buttonTop }}>
       <button onPointerDown={beginButtonDrag} className="focus-ring subtitle-fab flex items-center justify-center rounded-full border border-white/25 bg-black text-white shadow-xl" style={{ width: settings.button.size, height: settings.button.size, opacity: settings.button.opacity }} onClick={() => { if (dragged.current) { dragged.current = false; return; } if (active) stop(); else void start(); }} onContextMenu={(event) => { event.preventDefault(); setOpen(true); }} aria-label={active ? "停止实时字幕" : "开启实时字幕"}>{active ? <Pause size={20} weight="fill"/> : <Subtitles size={24} weight="bold"/>}</button>
       <button className="focus-ring absolute -bottom-2 -right-2 flex h-7 w-7 items-center justify-center rounded-full border border-white/30 bg-black text-white" onClick={() => setOpen(true)} aria-label="字幕设置"><GearSix size={14}/></button>
+      {active && !cue && <div className="absolute right-0 top-[calc(100%+10px)] w-max max-w-52 rounded-xl bg-black/85 px-3 py-2 text-xs text-white shadow-xl">{session.status === "loading_model" ? "正在加载识别模型…" : session.status === "reading_ocr" ? "正在识别画面字幕…" : "正在监听音频…"}</div>}
     </div>
-    {session.status === "error" && <div className="fixed left-1/2 top-5 z-[73] max-w-[calc(100%-2rem)] -translate-x-1/2 rounded-xl bg-[#171816] px-4 py-3 text-sm text-white shadow-xl">{session.error}<button className="ml-3 underline" onClick={() => setSession({ status: "idle", model: settings.model })}>关闭</button></div>}
-    {open && <aside role="dialog" aria-label="中文字幕设置" className="surface fixed bottom-4 right-4 z-[74] max-h-[calc(100vh-2rem)] w-[min(360px,calc(100vw-2rem))] overflow-auto rounded-2xl border line p-5 shadow-2xl">
-      <div className="flex items-center justify-between"><div><h2 className="font-semibold">中文字幕设置</h2><p className="mt-1 text-xs text-muted">样式只保存在本机</p></div><button className="focus-ring rounded-lg p-2" onClick={() => setOpen(false)} aria-label="关闭"><X size={18}/></button></div>
+    {session.status === "error" && <div className="fixed left-1/2 top-[max(1rem,env(safe-area-inset-top))] z-[9999] max-w-[calc(100%-2rem)] -translate-x-1/2 rounded-xl bg-[#171816] px-4 py-3 text-sm text-white shadow-xl">{session.error}<button className="ml-3 underline" onClick={() => setSession({ status: "idle", model: settings.model })}>关闭</button></div>}
+    {open && <aside role="dialog" aria-modal="true" aria-label="中文字幕设置" className="subtitle-settings-sheet surface fixed inset-x-3 bottom-3 z-[9999] max-h-[min(82dvh,720px)] overflow-auto rounded-2xl border line p-5 shadow-2xl md:inset-auto md:bottom-4 md:right-4 md:w-[min(360px,calc(100vw-2rem))]">
+      <div className="sticky top-0 z-10 -mx-5 -mt-5 flex items-center justify-between border-b line bg-[color:var(--surface)] px-5 py-4"><div><h2 className="font-semibold">中文字幕设置</h2><p className="mt-1 text-xs text-muted">{session.error ?? "样式只保存在本机"}</p></div><button className="focus-ring grid min-h-11 min-w-11 place-items-center rounded-xl border line" onClick={() => setOpen(false)} aria-label="关闭"><X size={18}/></button></div>
       <div className="mt-5 rounded-xl bg-black p-5 text-center"><span className="rounded-lg px-3 py-2" style={{ color: subtitle.color, background: rgba(subtitle.background, subtitle.backgroundOpacity), fontSize: Math.min(subtitle.fontSize, 26), fontWeight: subtitle.fontWeight }}>实时中文字幕预览</span></div>
       <div className="mt-5 grid gap-4 text-sm">
         <label className="grid gap-2 font-medium">显示方式<select className="surface-strong rounded-xl border line px-3 py-2.5" value={subtitle.mode} onChange={(e) => updateSubtitle({ mode: e.target.value as "fixed" | "floating" })}><option value="fixed">固定在原字幕上方</option><option value="floating">自由悬浮</option></select></label>
@@ -146,7 +236,7 @@ export function VideoSubtitleEnhancer() {
         <label className="grid gap-2 font-medium">字幕宽度：{subtitle.width}%<input type="range" min="40" max="96" value={subtitle.width} onChange={(e) => updateSubtitle({ width: Number(e.target.value) })}/></label>
         <div className="grid grid-cols-2 gap-3"><label className="flex items-center gap-2"><input type="checkbox" checked={subtitle.outline} onChange={(e) => updateSubtitle({ outline: e.target.checked })}/>文字描边</label><label className="flex items-center gap-2"><input type="checkbox" checked={subtitle.shadow} onChange={(e) => updateSubtitle({ shadow: e.target.checked })}/>文字阴影</label></div>
         <label className="grid gap-2 font-medium">识别模式<select className="surface-strong rounded-xl border line px-3 py-2.5" value={settings.model} onChange={(e) => setSettings((value) => ({ ...value, model: e.target.value as SubtitleSettings["model"] }))}><option value="auto">自动选择</option><option value="fast">流畅优先</option><option value="accurate">准确优先</option></select></label>
-        <label className="grid gap-2 font-medium">翻译来源<select className="surface-strong rounded-xl border line px-3 py-2.5" value={settings.sourceMode} onChange={(e) => setSettings((value) => ({ ...value, sourceMode: e.target.value as SubtitleSettings["sourceMode"] }))}><option value="auto">自动：优先原字幕</option><option value="captions">仅翻译视频字幕</option><option value="audio">按播放音频识别</option></select></label>
+        <label className="grid gap-2 font-medium">翻译来源<select className="surface-strong rounded-xl border line px-3 py-2.5" value={settings.sourceMode} onChange={(e) => setSettings((value) => ({ ...value, sourceMode: e.target.value as SubtitleSettings["sourceMode"] }))}><option value="auto">自动：字幕轨 → 画面 OCR → 音频</option><option value="captions">仅翻译视频字幕轨</option><option value="ocr">识别画面上的字幕</option><option value="audio">按播放音频识别</option></select></label>
         <button className="focus-ring pressable rounded-xl border line px-4 py-2.5 font-medium" onClick={() => setSettings(defaultSubtitleSettings)}>恢复默认设置</button>
       </div>
     </aside>}

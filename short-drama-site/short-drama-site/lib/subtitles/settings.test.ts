@@ -12,4 +12,7 @@ describe("subtitle settings", () => {
   it("recovers from corrupt local storage", () => {
     expect(readSubtitleSettings({ getItem: () => "{" })).toEqual(defaultSubtitleSettings);
   });
+  it("keeps OCR source mode when persisted", () => {
+    expect(sanitizeSubtitleSettings({ sourceMode: "ocr" }).sourceMode).toBe("ocr");
+  });
 });
