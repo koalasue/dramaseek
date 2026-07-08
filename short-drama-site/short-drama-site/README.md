@@ -34,6 +34,14 @@ pnpm dev
 
 Firecrawl 只用于公开元数据和官方观看入口，不抓取视频文件，也不绕过登录、付费、地区限制或 DRM。
 
+## YouTube 与搜索兜底
+
+- 配置 `YOUTUBE_API_KEY` 后，搜索页和排行榜会调用 YouTube Data API 获取视频标题、缩略图、频道与播放数据，并继续过滤解说、预告、影评和二创内容。
+- 配置 `SERPAPI_KEY` 后，系统会用 Google 搜索兜底发现 ReelShort、DramaBox、NetShort 的官方剧目页，再读取页面 OpenGraph/JSON-LD 元数据作为真实封面和简介候选。
+- TikTok 暂不作为官方播放 API 接入；只能通过搜索线索辅助发现讨论热度，最终仍需人工审核。
+
+后台 `/admin` 增加了“平台诊断”和“导入采集结果”。Agent-Reach 等本地采集工具整理出的 JSON 可以粘贴导入，导入后进入待审核队列，不会直接公开。
+
 ## 数据和合规边界
 
 - 公开结果只展示已发布剧目中标记为官方且未失效的资源。
@@ -62,6 +70,8 @@ MAX_DOWNLOAD_BYTES=524288000
 - `PATCH /api/admin/submissions/:id`
 - `PATCH /api/admin/resources/:id`
 - `POST /api/admin/dramas/merge`
+- `GET /api/admin/diagnostics`
+- `POST /api/admin/import`
 - `GET /api/cron/sync`
 - `GET /api/cron/health`
 

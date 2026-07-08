@@ -2,10 +2,10 @@ import { NextResponse } from "next/server";
 import { listDramas, listPlatforms } from "@/lib/repository";
 import { searchDailymotion } from "@/lib/live-search/dailymotion";
 import { searchWithFirecrawl } from "@/lib/live-search/firecrawl";
+import { searchOfficialPagesWithSerpApi } from "@/lib/live-search/serpapi";
+import { searchYouTube } from "@/lib/live-search/youtube";
 import { searchDiscussionSignals } from "@/lib/live-search/discussion";
 import type { LiveSearchResource } from "@/lib/types";
-
-type Entry = { id: string; title: string; titleZh: string; synopsis: string; posterUrl: string; episodeCount?: number; languages: string[]; score: number; resourceCount: number; views: number; likes: number; comments: number; mentions: number; creators: number; href: string; badge: string };
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -14,8 +14,9 @@ export async function GET() {
   const [dramas, platforms] = await Promise.all([listDramas(), listPlatforms()]);
   const candidates = dramas.slice(0, 10);
   const discoveries = await Promise.all(candidates.map(async (drama) => {
-    const [dm, official] = await Promise.allSettled([searchDailymotion(drama.titleEn || drama.titleZh), searchWithFirecrawl(drama.titleEn || drama.titleZh)]);
-    return { drama, resources: [...(dm.status === "fulfilled" ? dm.value : []), ...(official.status === "fulfilled" ? official.value : [])] };
+    const query = drama.titleEn || drama.titleZh;
+    const [dm, official, serpapi, youtube] = await Promise.allSettled([searchDailymotion(query), searchWithFirecrawl(query), searchOfficialPagesWithSerpApi(query), searchYouTube(query)]);
+    return { drama, resources: [...(youtube.status === "fulfilled" ? youtube.value : []), ...(dm.status === "fulfilled" ? dm.value : []), ...(official.status === "fulfilled" ? official.value : []), ...(serpapi.status === "fulfilled" ? serpapi.value : [])] };
   }));
   const eligible = discoveries.filter((item) => item.resources.length > 0);
   const [youtube, tiktok] = await Promise.all([searchDiscussionSignals(eligible.map((item) => item.drama), "youtube"), searchDiscussionSignals(eligible.map((item) => item.drama), "tiktok")]);
