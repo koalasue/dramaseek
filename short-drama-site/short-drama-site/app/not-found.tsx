@@ -1,2 +1,0 @@
-import Link from "next/link";
-export default function NotFound() { return <div className="page-shell py-28 text-center"><p className="accent text-sm font-semibold">404</p><h1 className="mt-4 text-4xl font-semibold">这部剧还不在索引里</h1><p className="mt-3 text-muted">返回搜索，或提交一个官方资源入口。</p><div className="mt-7 flex justify-center gap-3"><Link href="/search" className="focus-ring accent-bg rounded-xl px-5 py-3 font-semibold">返回搜索</Link><Link href="/submit" className="focus-ring rounded-xl border line px-5 py-3 font-semibold">提交资源</Link></div></div>; }
