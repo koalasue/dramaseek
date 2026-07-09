@@ -1,0 +1,57 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #f4f3ef;
+  --surface: #fbfaf7;
+  --surface-strong: #ebe9e2;
+  --ink: #171816;
+  --muted: #666861;
+  --line: #d8d6ce;
+  --accent: #c84f42;
+  --accent-ink: #fffaf5;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #151614;
+    --surface: #1d1e1b;
+    --surface-strong: #272824;
+    --ink: #f1f0ea;
+    --muted: #a7a89f;
+    --line: #393a35;
+    --accent: #e26b5e;
+    --accent-ink: #1a100e;
+  }
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: "SF Pro Display", "SF Pro Text", "PingFang SC", "Microsoft YaHei", Arial, sans-serif; }
+a { color: inherit; text-decoration: none; }
+button, input, select, textarea { font: inherit; }
+::selection { background: var(--accent); color: var(--accent-ink); }
+
+.page-shell { width: min(100% - 2rem, 1200px); margin-inline: auto; }
+@media (max-width: 640px) {
+  .page-shell { width: min(100% - 1rem, 1200px); }
+}
+.text-muted { color: var(--muted); }
+.surface { background: var(--surface); }
+.surface-strong { background: var(--surface-strong); }
+.line { border-color: var(--line); }
+.accent { color: var(--accent); }
+.accent-bg { background: var(--accent); color: var(--accent-ink); }
+.focus-ring:focus-visible { outline: 3px solid color-mix(in srgb, var(--accent) 55%, transparent); outline-offset: 3px; }
+.pressable { transition: transform 160ms ease, background-color 160ms ease, border-color 160ms ease; }
+.pressable:active { transform: translateY(1px) scale(.99); }
+.result-enter { animation: result-in .45s cubic-bezier(.16, 1, .3, 1) both; }
+.subtitle-fab { cursor: grab; transition: opacity 180ms ease, transform 180ms cubic-bezier(.16, 1, .3, 1); }
+.subtitle-fab:hover { transform: scale(1.05); }
+.subtitle-fab:active { cursor: grabbing; transform: scale(.96); }
+.subtitle-settings-sheet { padding-bottom: max(1.25rem, env(safe-area-inset-bottom)); overscroll-behavior: contain; }
+@keyframes result-in { from { opacity: 0; transform: translateY(12px); } }
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}
