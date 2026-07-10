@@ -1,4 +1,5 @@
 import { normalizeText } from "@/lib/search";
+import { calculateHeatScore } from "@/lib/rankings/trends";
 import type { LiveSearchResource } from "@/lib/types";
 
 export const officialDramaPlatforms = ["reelshort", "dramabox", "shortmax", "goodshort", "flextv", "netshort"] as const;
@@ -98,14 +99,7 @@ export function enrichRankingResource(resource: LiveSearchResource, index = 0): 
     (episodeCount ? 10 : 0) +
     (hasHotData(resource) ? 5 : 0);
 
-  const views = resource.viewCount ?? 0;
-  const likes = resource.likeCount ?? 0;
-  const comments = resource.commentCount ?? 0;
-  const officialRankSignal = resource.officialRank ? Math.max(0, 101 - resource.officialRank) : officialSource ? Math.max(40, 90 - index * 6) : 0;
-  const playSignal = Math.min(100, Math.log10(views + 1) * 16);
-  const growthSignal = Math.min(100, Math.log10(likes + comments + 1) * 18 + (resource.officialRank && resource.officialRank <= 10 ? 20 : 0));
-  const freshnessSignal = resource.discoveredAt ? freshnessScore(resource.discoveredAt) : 65;
-  const hotScore = clampScore(officialRankSignal * 0.4 + playSignal * 0.3 + growthSignal * 0.2 + freshnessSignal * 0.1);
+  const heat = calculateHeatScore({ ...resource, source_type: sourceType, official_source: officialSource, discoveredAt: resource.discoveredAt ?? new Date().toISOString() }, index);
 
   return {
     ...resource,
@@ -113,20 +107,13 @@ export function enrichRankingResource(resource: LiveSearchResource, index = 0): 
     official_source: officialSource,
     source_url: resource.source_url ?? resource.url,
     confidence_score: clampScore(confidence),
-    hot_score: hotScore,
-    trend_direction: resource.trend_direction ?? (growthSignal >= 55 ? "UP" : views > 0 ? "STABLE" : "STABLE"),
+    hot_score: heat.heat,
+    trend_direction: resource.trend_direction ?? (heat.social >= 50 || heat.search >= 78 ? "UP" : "STABLE"),
     genre,
     episodeCount,
     officialDramaId,
     discoveredAt: resource.discoveredAt ?? new Date().toISOString(),
   };
-}
-
-function freshnessScore(value: string) {
-  const ageMs = Date.now() - new Date(value).getTime();
-  if (!Number.isFinite(ageMs) || ageMs < 0) return 70;
-  const ageDays = ageMs / 86_400_000;
-  return clampScore(100 - ageDays * 4);
 }
 
 export function isEligibleRankingResource(resource: LiveSearchResource) {

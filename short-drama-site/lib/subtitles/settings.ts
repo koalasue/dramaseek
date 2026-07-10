@@ -1,6 +1,6 @@
 import type { SubtitleSettings } from "@/lib/subtitles/types";
 
-export const SUBTITLE_SETTINGS_KEY = "short-drama-subtitle-settings-v1";
+export const SUBTITLE_SETTINGS_KEY = "short-drama-subtitle-settings-v2";
 
 export const defaultSubtitleSettings: SubtitleSettings = {
   subtitle: {
@@ -11,7 +11,7 @@ export const defaultSubtitleSettings: SubtitleSettings = {
   },
   button: { size: 48, opacity: 0.94, edge: "right", y: 42, autoHideSeconds: 5, alwaysVisible: false },
   model: "auto",
-  sourceMode: "audio",
+  sourceMode: "ocr",
   subtitleDisplay: "translated",
 };
 

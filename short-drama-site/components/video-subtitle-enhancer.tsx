@@ -132,6 +132,18 @@ async function readOcrText(source: HTMLVideoElement) {
   return (result.data?.text ?? "").replace(/\s+/g, " ").trim();
 }
 
+function subtitleStatusLabel(status: TranslationSession["status"]) {
+  if (status === "detecting_subtitles") return "正在检测烧录字幕…";
+  if (status === "reading_ocr") return "字幕处理中…";
+  if (status === "ocr_detected") return "英文识别完成…";
+  if (status === "translating") return "正在生成中文…";
+  if (status === "translated") return "中文生成完成…";
+  if (status === "ready") return "字幕加载完成";
+  if (status === "loading_model") return "正在加载语音识别模型…";
+  if (status === "listening") return "正在监听音频…";
+  return "正在准备字幕…";
+}
+
 async function createOcrSource(target: Element) {
   if (target instanceof HTMLVideoElement) return { video: target, cleanup: () => {} };
   if (!navigator.mediaDevices.getDisplayMedia) throw new Error("当前浏览器无法截取外部平台画面，请改用音频识别");
@@ -186,6 +198,9 @@ export function VideoSubtitleEnhancer() {
 
   const publishCue = useCallback(async (rawText: string, source: SubtitleCue["source"], startedAt: number, confidence: number) => {
     const originalText = cleanSubtitleText(rawText);
+    if (source === "ocr") {
+      setSession((current) => ({ ...current, status: "ocr_detected", error: "英文识别完成，正在翻译中文。" }));
+    }
     if (source === "asr" && confidence < MIN_ASR_CONFIDENCE) {
       setSession((current) => ({ ...current, status: "listening", error: "已过滤低置信度 ASR 结果。" }));
       return;
@@ -200,6 +215,7 @@ export function VideoSubtitleEnhancer() {
       setSession((current) => ({ ...current, status: "listening", error: "已过滤重复字幕。" }));
       return;
     }
+    setSession((current) => ({ ...current, status: "translating", error: source === "ocr" ? "英文识别完成，中文生成中。" : undefined }));
     const output = await translate(originalText);
     const translatedText = cleanSubtitleText(output.text);
     if (isLowQualitySubtitle(translatedText) && source !== "captions") {
@@ -221,12 +237,13 @@ export function VideoSubtitleEnhancer() {
     window.dispatchEvent(new CustomEvent("dramaseek:subtitle-cue", { detail: next }));
     setSession((current) => ({
       ...current,
-      status: "listening",
+      status: "translated",
       detectedLanguage: output.language,
       currentCue: next,
       latencyMs: Date.now() - startedAt,
-      error: output.translated ? undefined : "当前浏览器不支持本地翻译，已先显示识别到的原文。",
+      error: output.translated ? "中文生成完成，字幕加载中。" : "当前浏览器不支持本地翻译，已先显示识别到的原文。",
     }));
+    window.setTimeout(() => setSession((current) => ({ ...current, status: "ready", error: output.translated ? undefined : current.error })), 250);
   }, []);
 
   const startOcrSession = useCallback(async (notice?: string) => {
@@ -237,11 +254,11 @@ export function VideoSubtitleEnhancer() {
       if (disposed || busy.current) return;
       try {
         busy.current = true;
-        setSession((current) => ({ ...current, status: "reading_ocr", error: notice ?? (source.video === target ? undefined : "请在共享窗口里保持视频可见，系统会识别画面底部字幕。") }));
+        setSession((current) => ({ ...current, status: "reading_ocr", error: notice ?? (source.video === target ? "字幕处理中：正在识别画面底部英文烧录字幕。" : "请在共享窗口里保持视频可见，系统会识别画面底部字幕。") }));
         const rawText = await readOcrText(source.video);
         if (rawText && rawText !== lastText) {
           lastText = rawText;
-          await publishCue(rawText, "ocr", Date.now(), 0.55);
+          await publishCue(rawText, "ocr", Date.now(), 0.82);
         } else {
           setSession((current) => ({ ...current, status: "reading_ocr" }));
         }
@@ -251,14 +268,14 @@ export function VideoSubtitleEnhancer() {
     };
     const timer = window.setInterval(() => void run().catch((error) => setSession((current) => ({ ...current, status: "error", error: error instanceof Error ? error.message : "画面字幕 OCR 失败" }))), OCR_INTERVAL_MS);
     ocrCleanup.current = () => { disposed = true; window.clearInterval(timer); source.cleanup(); };
-    setSession({ status: "reading_ocr", model: settings.model, error: notice });
+    setSession({ status: "detecting_subtitles", model: settings.model, error: notice ?? "正在检测视频是否存在英文烧录字幕。" });
     void run();
   }, [publishCue, settings.model, target]);
 
   const start = async () => {
     try {
       setSession({ status: "requesting", model: settings.model });
-      const sourceMode = settings.sourceMode === "auto" && target instanceof HTMLVideoElement && target.textTracks.length ? "captions" : settings.sourceMode;
+      const sourceMode = settings.sourceMode === "auto" ? (target instanceof HTMLVideoElement && target.textTracks.length ? "captions" : "ocr") : settings.sourceMode;
       if (sourceMode === "captions" && target instanceof HTMLVideoElement && target.textTracks.length) {
         const track = [...target.textTracks].find((item) => item.kind === "subtitles" || item.kind === "captions") ?? target.textTracks[0];
         track.mode = "hidden";
@@ -273,7 +290,7 @@ export function VideoSubtitleEnhancer() {
         setSession({ status: "listening", model: settings.model }); onCue(); return;
       }
       if (sourceMode === "ocr") {
-        await startOcrSession();
+        await startOcrSession("OCR 优先：正在识别视频画面里的英文烧录字幕。");
         return;
       }
       if (sourceMode === "captions") throw new Error("该视频没有可读取的字幕轨，请切换为“播放音频识别”");
@@ -337,7 +354,7 @@ export function VideoSubtitleEnhancer() {
     <div className="fixed" style={{ zIndex: 9998, left: buttonLeft, top: buttonTop }}>
       <button onPointerDown={beginButtonDrag} className="focus-ring subtitle-fab flex items-center justify-center rounded-full border border-white/25 bg-black text-white shadow-xl" style={{ width: settings.button.size, height: settings.button.size, opacity: settings.button.opacity }} onClick={() => { if (dragged.current) { dragged.current = false; return; } if (active) stop(); else void start(); }} onContextMenu={(event) => { event.preventDefault(); setOpen(true); }} aria-label={active ? "停止实时字幕" : "开启实时字幕"}>{active ? <Pause size={20} weight="fill"/> : <Subtitles size={24} weight="bold"/>}</button>
       <button className="focus-ring absolute -bottom-2 -right-2 flex h-7 w-7 items-center justify-center rounded-full border border-white/30 bg-black text-white" onClick={() => setOpen(true)} aria-label="字幕设置"><GearSix size={14}/></button>
-      {active && !cue && <div className="absolute right-0 top-[calc(100%+10px)] w-max max-w-52 rounded-xl bg-black/85 px-3 py-2 text-xs text-white shadow-xl">{session.status === "loading_model" ? "正在加载识别模型…" : session.status === "reading_ocr" ? "正在识别画面字幕…" : "正在监听音频…"}</div>}
+      {active && !cue && <div className="absolute right-0 top-[calc(100%+10px)] w-max max-w-52 rounded-xl bg-black/85 px-3 py-2 text-xs text-white shadow-xl">{subtitleStatusLabel(session.status)}</div>}
     </div>
     {session.status === "error" && <div className="fixed left-1/2 top-[max(1rem,env(safe-area-inset-top))] z-[9999] max-w-[calc(100%-2rem)] -translate-x-1/2 rounded-xl bg-[#171816] px-4 py-3 text-sm text-white shadow-xl">{session.error}<button className="ml-3 underline" onClick={() => setSession({ status: "idle", model: settings.model })}>关闭</button></div>}
     {open && <aside role="dialog" aria-modal="true" aria-label="中文字幕设置" className="subtitle-settings-sheet surface fixed inset-x-3 bottom-3 z-[9999] max-h-[min(82dvh,720px)] overflow-auto rounded-2xl border line p-5 shadow-2xl md:inset-auto md:bottom-4 md:right-4 md:w-[min(360px,calc(100vw-2rem))]">
@@ -354,7 +371,7 @@ export function VideoSubtitleEnhancer() {
         <label className="grid gap-2 font-medium">字幕宽度：{subtitle.width}%<input type="range" min="40" max="96" value={subtitle.width} onChange={(e) => updateSubtitle({ width: Number(e.target.value) })}/></label>
         <div className="grid grid-cols-2 gap-3"><label className="flex items-center gap-2"><input type="checkbox" checked={subtitle.outline} onChange={(e) => updateSubtitle({ outline: e.target.checked })}/>文字描边</label><label className="flex items-center gap-2"><input type="checkbox" checked={subtitle.shadow} onChange={(e) => updateSubtitle({ shadow: e.target.checked })}/>文字阴影</label></div>
         <label className="grid gap-2 font-medium">识别模式<select className="surface-strong rounded-xl border line px-3 py-2.5" value={settings.model} onChange={(e) => setSettings((value) => ({ ...value, model: e.target.value as SubtitleSettings["model"] }))}><option value="auto">自动选择</option><option value="fast">流畅优先</option><option value="accurate">准确优先</option></select></label>
-        <label className="grid gap-2 font-medium">字幕来源<select className="surface-strong rounded-xl border line px-3 py-2.5" value={settings.sourceMode} onChange={(e) => setSettings((value) => ({ ...value, sourceMode: e.target.value as SubtitleSettings["sourceMode"] }))}><option value="audio">视频音频 ASR（推荐）</option><option value="captions">原视频字幕轨</option><option value="auto">自动：优先音频识别</option><option value="ocr">OCR备用：识别画面文字</option></select></label>
+        <label className="grid gap-2 font-medium">字幕来源<select className="surface-strong rounded-xl border line px-3 py-2.5" value={settings.sourceMode} onChange={(e) => setSettings((value) => ({ ...value, sourceMode: e.target.value as SubtitleSettings["sourceMode"] }))}><option value="ocr">OCR识别烧录字幕（推荐）</option><option value="audio">视频音频 ASR（备用）</option><option value="captions">原视频字幕轨</option><option value="auto">自动：字幕轨 → OCR</option></select></label>
         <button className="focus-ring pressable rounded-xl border line px-4 py-2.5 font-medium" onClick={() => setSettings(defaultSubtitleSettings)}>恢复默认设置</button>
       </div>
     </aside>}

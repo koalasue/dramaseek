@@ -44,10 +44,25 @@ type GlobalEntry = {
 
 type Panel = { id: string; name: string; mode: string; entries: Entry[] };
 type ComingSoonPlatform = { id: string; name: string; status: string; note: string; expected: string };
-type TikTokTrendAnalysis = { title: string; note: string; keywords: Array<{ tag: string; status: string }> };
+type PlatformTrend = {
+  id: string;
+  name: string;
+  status: string;
+  data_source: string;
+  last_updated: string;
+  heat_score: number;
+  views: number;
+  search_score: number;
+  social_score: number;
+  trend_direction: TrendDirection;
+  ranking_signal: string;
+  entries: Entry[];
+};
+type TikTokTrendAnalysis = { title: string; note: string; keywords: Array<{ tag: string; views: number; trend_change: TrendDirection; ranking_signal: number; status: string }> };
 type RankingResponse = {
   globalTrending?: GlobalEntry[];
   panels?: Panel[];
+  platformTrends?: PlatformTrend[];
   comingSoonPlatforms?: ComingSoonPlatform[];
   tiktokTrendAnalysis?: TikTokTrendAnalysis;
   quality?: { eligible: number; rejected: number; minimumConfidence: number; blockedReason: string };
@@ -170,9 +185,28 @@ export function LiveRankings() {
 
     <section>
       <div className="flex items-end justify-between gap-4">
-        <div><h2 className="text-lg font-semibold tracking-[-.02em]">Platform Rankings</h2><p className="mt-1 text-xs text-muted">每个平台只展示 Top 10 已验证短剧；未接入的平台以 Coming Soon 提示。</p></div>
+        <div><h2 className="text-lg font-semibold tracking-[-.02em]">Platform Trend</h2><p className="mt-1 text-xs text-muted">没有公开排行榜 API 的平台，也会用公开页面、搜索趋势、社交讨论和更新频率生成趋势信号。</p></div>
         <button onClick={() => void load()} className="focus-ring pressable hidden min-h-9 items-center gap-2 rounded-lg border line px-3 text-xs font-medium sm:inline-flex"><ArrowClockwise size={15}/>刷新</button>
       </div>
+      {!!data.platformTrends?.length && <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+        {data.platformTrends.map((platform) => <section key={platform.id} className="surface rounded-xl border line p-3">
+          <div className="flex items-start justify-between gap-3">
+            <div><h3 className="text-sm font-semibold">{platform.name}</h3><p className="mt-1 text-[11px] text-muted">{platform.status}</p></div>
+            <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2 py-1 text-xs font-bold text-red-700"><Fire size={13} weight="fill"/>Heat {platform.heat_score}</span>
+          </div>
+          <p className="mt-2 line-clamp-2 text-xs leading-5 text-muted">Data source：{platform.data_source}</p>
+          <div className="mt-2 grid grid-cols-3 gap-1.5 text-center text-[11px]">
+            <span className="rounded-lg bg-[color:var(--surface-strong)] px-2 py-1.5"><strong className="block text-xs">{platform.search_score}</strong>Search</span>
+            <span className="rounded-lg bg-[color:var(--surface-strong)] px-2 py-1.5"><strong className="block text-xs">{platform.social_score}</strong>Social</span>
+            <span className="rounded-lg bg-[color:var(--surface-strong)] px-2 py-1.5"><strong className="block text-xs">{platform.views ? compact.format(platform.views) : "—"}</strong>Views</span>
+          </div>
+          <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-muted">
+            <span className="inline-flex items-center gap-1">{trendIcon(platform.trend_direction)}{trendLabel(platform.trend_direction)}</span>
+            <span>{new Date(platform.last_updated).toLocaleDateString("zh-CN")}</span>
+          </div>
+          <p className="mt-1.5 text-[11px] text-muted">{platform.ranking_signal}</p>
+        </section>)}
+      </div>}
       <div className="mt-3 grid items-start gap-3 md:grid-cols-2 xl:grid-cols-3">
         {(data.panels ?? []).map((panel) => {
           const isExpanded = expanded[panel.id] === true;
@@ -199,7 +233,11 @@ export function LiveRankings() {
 
     {data.tiktokTrendAnalysis && <section className="surface rounded-xl border line p-4">
       <div className="flex items-start justify-between gap-4"><div><h2 className="text-base font-semibold">{data.tiktokTrendAnalysis.title}</h2><p className="mt-1 text-xs leading-5 text-muted">{data.tiktokTrendAnalysis.note}</p></div><ChartBar size={20} className="accent"/></div>
-      <div className="mt-3 flex flex-wrap gap-1.5">{data.tiktokTrendAnalysis.keywords.map((item) => <span key={item.tag} className="rounded-full bg-[color:var(--surface-strong)] px-3 py-1.5 text-xs font-semibold">{item.tag}<span className="ml-1.5 text-[11px] text-muted">{item.status}</span></span>)}</div>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">{data.tiktokTrendAnalysis.keywords.map((item) => <div key={item.tag} className="rounded-xl bg-[color:var(--surface-strong)] p-3">
+        <div className="flex items-center justify-between gap-2"><strong className="text-sm">{item.tag}</strong><span className="inline-flex items-center gap-1 text-[11px] text-muted">{trendIcon(item.trend_change)}{item.trend_change}</span></div>
+        <div className="mt-2 grid grid-cols-2 gap-1.5 text-[11px] text-muted"><span>Views signal <strong className="text-[color:var(--ink)]">{item.views}</strong></span><span>Ranking <strong className="text-[color:var(--ink)]">{item.ranking_signal}</strong></span></div>
+        <p className="mt-1.5 text-[11px] text-muted">{item.status}</p>
+      </div>)}</div>
     </section>}
   </div>;
 }

@@ -153,3 +153,18 @@ export interface LiveSearchResponse {
   resources: LiveSearchResource[];
   platformStatus: Record<string, "live" | "needs_key" | "unavailable">;
 }
+
+export interface DramaTrend {
+  id: string;
+  drama_id?: string;
+  platform: string;
+  views: number;
+  search_score: number;
+  social_score: number;
+  update_score: number;
+  heat_score: number;
+  trend_direction: "UP" | "DOWN" | "STABLE";
+  source_url?: string;
+  source_type?: LiveSearchResource["source_type"];
+  updated_at: string;
+}

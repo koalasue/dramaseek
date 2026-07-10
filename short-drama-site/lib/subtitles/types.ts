@@ -1,4 +1,4 @@
-export type TranslationStatus = "idle" | "requesting" | "loading_model" | "reading_ocr" | "listening" | "translating" | "error";
+export type TranslationStatus = "idle" | "requesting" | "detecting_subtitles" | "reading_ocr" | "ocr_detected" | "loading_model" | "listening" | "translating" | "translated" | "ready" | "error";
 export type SubtitleMode = "fixed" | "floating";
 export type ModelProfile = "auto" | "fast" | "accurate";
 
