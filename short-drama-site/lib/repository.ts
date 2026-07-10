@@ -1,6 +1,6 @@
 import { dramas as fallbackDramas, platforms as fallbackPlatforms, demoSubmissions } from "@/lib/seed";
 import { getSupabaseServer } from "@/lib/supabase/server";
-import type { Drama, PersonalAccountConnection, PersonalAccountConnectionMode, PersonalAccountPlatform, Platform, Submission, SubmissionInput } from "@/lib/types";
+import type { CloudSource, CloudType, Drama, PersonalAccountConnection, PersonalAccountConnectionMode, PersonalAccountPlatform, Platform, Submission, SubmissionInput } from "@/lib/types";
 
 type DramaRow = {
   id: string; slug: string; title_zh: string; title_en: string; synopsis: string; poster_url: string;
@@ -10,6 +10,34 @@ type DramaRow = {
   drama_aliases?: { value: string }[];
   resources?: { id: string; platform_id: string; platform?: string | null; url: string; video_id?: string | null; play_type?: Drama["resources"][number]["playType"] | null; playback_status?: Drama["resources"][number]["playbackStatus"] | null; quality_score?: number | null; last_check_time?: string | null; language: Drama["languages"][number]; region: string; status: "active" | "limited" | "unavailable"; official: boolean; published_at: string | null; checked_at: string; source_proof: string; content_type: "full_series" | "episode" | null }[];
 };
+
+type CloudSourceRow = {
+  id: string;
+  drama_id?: string | null;
+  title?: string | null;
+  cloud_type: CloudType;
+  cloud_url: string;
+  cloud_status: CloudSource["cloudStatus"];
+  subtitle_support_score: number;
+  note?: string | null;
+  created_time: string;
+  updated_time?: string | null;
+};
+
+function mapCloudSource(row: CloudSourceRow): CloudSource {
+  return {
+    id: row.id,
+    dramaId: row.drama_id ?? undefined,
+    title: row.title ?? undefined,
+    cloudType: row.cloud_type,
+    cloudUrl: row.cloud_url,
+    cloudStatus: row.cloud_status,
+    subtitleSupportScore: row.subtitle_support_score,
+    note: row.note ?? undefined,
+    createdTime: row.created_time,
+    updatedTime: row.updated_time ?? undefined,
+  };
+}
 
 function mapDrama(row: DramaRow): Drama {
   return {
@@ -23,7 +51,8 @@ function mapDrama(row: DramaRow): Drama {
       id: item.id, resourceId: item.id, dramaId: row.id, platformId: item.platform_id, platform: item.platform ?? item.platform_id, url: item.url, videoId: item.video_id ?? undefined, playType: item.play_type ?? undefined, playbackStatus: item.playback_status ?? undefined, qualityScore: item.quality_score ?? undefined, lastCheckTime: item.last_check_time ?? undefined, language: item.language, region: item.region,
       status: item.status, official: item.official, publishedAt: item.published_at ?? undefined,
       checkedAt: item.checked_at, sourceProof: item.source_proof, contentType: item.content_type ?? undefined
-    }))
+    })),
+    cloudSources: []
   };
 }
 
@@ -40,7 +69,22 @@ export async function listDramas(): Promise<Drama[]> {
   if (!supabase) return fallbackDramas;
   const { data, error } = await supabase.from("dramas").select("*, drama_aliases(value), resources(*)").eq("published", true);
   if (error || !data?.length) return fallbackDramas;
-  return (data as DramaRow[]).map(mapDrama).map((drama) => ({ ...drama, resources: drama.resources.filter((resource) => resource.status !== "unavailable" && resource.official) }));
+  const dramas = (data as DramaRow[]).map(mapDrama).map((drama) => ({ ...drama, resources: drama.resources.filter((resource) => resource.status !== "unavailable" && resource.official) }));
+  const { data: cloudRows } = await supabase
+    .from("cloud_sources")
+    .select("*")
+    .eq("approved", true)
+    .in("cloud_status", ["available", "processing"])
+    .order("created_time", { ascending: false });
+  if (!cloudRows?.length) return dramas;
+  const byDrama = new Map<string, CloudSource[]>();
+  (cloudRows as CloudSourceRow[]).forEach((row) => {
+    if (!row.drama_id) return;
+    const list = byDrama.get(row.drama_id) ?? [];
+    list.push(mapCloudSource(row));
+    byDrama.set(row.drama_id, list);
+  });
+  return dramas.map((drama) => ({ ...drama, cloudSources: byDrama.get(drama.id) ?? [] }));
 }
 
 export async function getDramaBySlug(slug: string) {

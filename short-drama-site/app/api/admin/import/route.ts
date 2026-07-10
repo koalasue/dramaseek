@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { isAdminAuthenticated } from "@/lib/admin-auth";
 import { getSupabaseServer } from "@/lib/supabase/server";
 import { createSubmission } from "@/lib/repository";
+import { validateResourceUrl } from "@/lib/url-policy";
 
 type ImportItem = {
   url?: string;
@@ -10,18 +11,6 @@ type ImportItem = {
   platform?: string;
   source?: string;
 };
-
-function isSafeOfficialUrl(value: string) {
-  try {
-    const url = new URL(value);
-    const host = url.hostname.toLowerCase();
-    return url.protocol === "https:" && [
-      "youtube.com", "youtu.be", "reelshort.com", "dramabox.com", "dramaboxdb.com", "netshort.com", "dailymotion.com", "tiktok.com"
-    ].some((domain) => host === domain || host.endsWith(`.${domain}`));
-  } catch {
-    return false;
-  }
-}
 
 export async function POST(request: NextRequest) {
   if (!(await isAdminAuthenticated())) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -34,7 +23,7 @@ export async function POST(request: NextRequest) {
 
   for (const item of items.slice(0, 100)) {
     const url = item.url?.trim();
-    if (!url || !isSafeOfficialUrl(url)) { results.skipped += 1; continue; }
+    if (!url || !validateResourceUrl(url).valid) { results.skipped += 1; continue; }
     const note = [item.note, item.platform && `平台：${item.platform}`, item.source && `来源：${item.source}`].filter(Boolean).join("\n");
     try {
       if (supabase) {

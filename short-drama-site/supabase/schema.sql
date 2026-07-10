@@ -51,7 +51,7 @@ create table if not exists resources (
   platform text,
   url text unique not null check (url like 'https://%'),
   video_id text,
-  play_type text not null default 'external' check (play_type in ('direct', 'embed', 'external', 'unavailable')),
+  play_type text not null default 'external' check (play_type in ('direct', 'embed', 'external', 'cloud', 'unavailable')),
   playback_status text not null default 'available' check (playback_status in ('available', 'login_required', 'expired', 'private')),
   quality_score integer not null default 70,
   last_check_time timestamptz not null default now(),
@@ -71,7 +71,7 @@ create table if not exists sources (
   platform text not null references platforms(id),
   url text unique not null check (url like 'https://%'),
   video_id text,
-  play_type text not null default 'external' check (play_type in ('direct', 'embed', 'external', 'unavailable')),
+  play_type text not null default 'external' check (play_type in ('direct', 'embed', 'external', 'cloud', 'unavailable')),
   status text not null default 'available' check (status in ('available', 'login_required', 'expired', 'private')),
   quality_score integer not null default 70,
   last_check_time timestamptz not null default now()
@@ -91,6 +91,20 @@ create table if not exists subtitles (
 );
 
 create index if not exists subtitles_video_time on subtitles (video_id, language, start_time);
+
+create table if not exists cloud_sources (
+  id uuid primary key default gen_random_uuid(),
+  drama_id uuid references dramas(id) on delete cascade,
+  title text,
+  cloud_type text not null check (cloud_type in ('baidu', 'quark')),
+  cloud_url text unique not null check (cloud_url like 'https://%'),
+  cloud_status text not null default 'processing' check (cloud_status in ('available', 'processing', 'expired', 'invalid')),
+  subtitle_support_score integer not null default 5 check (subtitle_support_score between 0 and 5),
+  approved boolean not null default false,
+  note text,
+  created_time timestamptz not null default now(),
+  updated_time timestamptz not null default now()
+);
 
 create table if not exists submissions (
   id uuid primary key default gen_random_uuid(),
@@ -134,6 +148,7 @@ alter table drama_aliases enable row level security;
 alter table resources enable row level security;
 alter table sources enable row level security;
 alter table subtitles enable row level security;
+alter table cloud_sources enable row level security;
 alter table submissions enable row level security;
 alter table crawl_runs enable row level security;
 alter table personal_account_connections enable row level security;
@@ -144,6 +159,7 @@ create policy "public read published aliases" on drama_aliases for select using 
 create policy "public read official resources" on resources for select using (official = true and status <> 'unavailable' and exists (select 1 from dramas where dramas.id = drama_id and dramas.published));
 create policy "public read available sources" on sources for select using (status <> 'expired' and exists (select 1 from dramas where dramas.id = drama_id and dramas.published));
 create policy "public read subtitles" on subtitles for select using (true);
+create policy "public read approved cloud sources" on cloud_sources for select using (approved = true and cloud_status in ('available', 'processing') and exists (select 1 from dramas where dramas.id = drama_id and dramas.published));
 create policy "public submit pending" on submissions for insert with check (status = 'pending');
 
 insert into platforms (id, slug, name, domain, offline_note) values

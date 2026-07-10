@@ -10,7 +10,7 @@ export interface SubtitleCue {
   originalText: string;
   translatedText: string;
   confidence: number;
-  source: "captions" | "asr" | "ocr";
+  source: "captions" | "asr" | "ocr" | "vision";
 }
 
 export interface TranslationSession {
@@ -20,6 +20,16 @@ export interface TranslationSession {
   currentCue?: SubtitleCue;
   latencyMs?: number;
   error?: string;
+  engine?: "captions" | "asr" | "ocr" | "vision" | "limited";
+  capabilities?: SubtitleCapabilities;
+}
+
+export interface SubtitleCapabilities {
+  canExtractSubtitle: boolean;
+  canExtractAudio: boolean;
+  canCaptureFrame: boolean;
+  isExternalSource: boolean;
+  reason?: string;
 }
 
 export interface SubtitlePreferences {

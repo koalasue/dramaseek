@@ -36,7 +36,7 @@ export function searchDramas(items: Drama[], platformItems: Platform[], filters:
     : undefined;
   return items
     .map((drama) => ({ ...drama, score: scoreDrama(drama, filters.query ?? "") }))
-    .filter((drama) => drama.resources.some((resource) => resource.official && resource.status !== "unavailable" && Boolean(resource.sourceProof)))
+    .filter((drama) => drama.resources.some((resource) => resource.official && resource.status !== "unavailable" && Boolean(resource.sourceProof)) || Boolean(drama.cloudSources?.some((source) => source.cloudStatus === "available" || source.cloudStatus === "processing")))
     .filter((drama) => !filters.query?.trim() || drama.score >= 0.2)
     .filter((drama) => !platformId || drama.resources.some((resource) => resource.platformId === platformId && resource.status !== "unavailable"))
     .filter((drama) => !filters.language || filters.language === "all" || drama.languages.includes(filters.language))

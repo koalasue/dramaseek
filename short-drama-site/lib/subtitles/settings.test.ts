@@ -4,7 +4,7 @@ import { defaultSubtitleSettings, readSubtitleSettings, sanitizeSubtitleSettings
 describe("subtitle settings", () => {
   it("uses readable defaults above native captions", () => {
     expect(defaultSubtitleSettings.subtitle).toMatchObject({ mode: "fixed", maxLines: 2, verticalOffset: 128 });
-    expect(defaultSubtitleSettings.sourceMode).toBe("ocr");
+    expect(defaultSubtitleSettings.sourceMode).toBe("auto");
   });
   it("clamps unsafe persisted values", () => {
     const value = sanitizeSubtitleSettings({ subtitle: { fontSize: 999, width: 2, floatingY: -30 }, button: { size: 2, opacity: 9 } });

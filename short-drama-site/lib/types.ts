@@ -1,7 +1,9 @@
 export type Language = "zh" | "en" | "es" | "other";
 export type ResourceStatus = "active" | "limited" | "unavailable";
-export type PlayType = "direct" | "embed" | "external" | "unavailable";
+export type PlayType = "direct" | "embed" | "external" | "cloud" | "unavailable";
 export type PlaybackStatus = "available" | "login_required" | "expired" | "private";
+export type CloudType = "baidu" | "quark";
+export type CloudStatus = "available" | "processing" | "expired" | "invalid";
 
 export interface Platform {
   id: string;
@@ -57,6 +59,7 @@ export interface Drama {
   updatedAt: string;
   resources: Resource[];
   sources?: Source[];
+  cloudSources?: CloudSource[];
 }
 
 export interface Source {
@@ -69,6 +72,19 @@ export interface Source {
   status: PlaybackStatus;
   qualityScore?: number;
   lastCheckTime?: string;
+}
+
+export interface CloudSource {
+  id: string;
+  dramaId?: string;
+  title?: string;
+  cloudType: CloudType;
+  cloudUrl: string;
+  cloudStatus: CloudStatus;
+  subtitleSupportScore: number;
+  note?: string;
+  createdTime: string;
+  updatedTime?: string;
 }
 
 export interface SearchFilters {

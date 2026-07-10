@@ -11,7 +11,7 @@ export const defaultSubtitleSettings: SubtitleSettings = {
   },
   button: { size: 48, opacity: 0.94, edge: "right", y: 42, autoHideSeconds: 5, alwaysVisible: false },
   model: "auto",
-  sourceMode: "ocr",
+  sourceMode: "auto",
   subtitleDisplay: "translated",
 };
 

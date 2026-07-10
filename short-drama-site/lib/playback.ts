@@ -4,6 +4,20 @@ type PlaybackTarget = Pick<Resource, "url" | "platformId" | "status" | "playType
 
 const embedPlatforms = new Set(["youtube", "dailymotion"]);
 const externalPlatforms = new Set(["reelshort", "dramabox", "netshort", "shortmax", "goodshort", "flextv", "tiktok"]);
+const cloudPlatforms = new Set(["baidu", "quark"]);
+const cloudDomains: Record<string, string[]> = {
+  baidu: ["pan.baidu.com", "yun.baidu.com"],
+  quark: ["pan.quark.cn", "drive.quark.cn"],
+};
+
+export function cloudTypeFromUrl(rawUrl: string) {
+  try {
+    const host = new URL(rawUrl).hostname.toLowerCase();
+    return (Object.entries(cloudDomains).find(([, domains]) => domains.some((domain) => host === domain || host.endsWith(`.${domain}`)))?.[0]) as "baidu" | "quark" | undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 export function videoIdFromUrl(rawUrl: string) {
   try {
@@ -20,6 +34,7 @@ export function videoIdFromUrl(rawUrl: string) {
 export function derivePlayType(platformId: string, rawUrl: string): PlayType {
   try {
     const url = new URL(rawUrl);
+    if (cloudPlatforms.has(platformId) || cloudTypeFromUrl(rawUrl)) return "cloud";
     if (url.pathname.toLowerCase().match(/\.(mp4|webm|mov)$/)) return "direct";
     if (embedPlatforms.has(platformId)) return "embed";
     if (externalPlatforms.has(platformId)) return "external";
@@ -32,6 +47,7 @@ export function derivePlayType(platformId: string, rawUrl: string): PlayType {
 export function derivePlaybackStatus(platformId: string, playType: PlayType, rawStatus?: string): PlaybackStatus {
   if (playType === "unavailable" || rawStatus === "unavailable") return "expired";
   if (rawStatus === "limited") return "login_required";
+  if (playType === "cloud") return "available";
   if (["reelshort", "dramabox", "netshort", "shortmax", "goodshort", "flextv"].includes(platformId) && playType === "external") return "login_required";
   return "available";
 }
@@ -42,8 +58,76 @@ export function playbackLabel(playType: PlayType, status: PlaybackStatus) {
   if (status === "private") return "私密资源";
   if (playType === "direct") return "Play Now";
   if (playType === "embed") return "Watch Here";
+  if (playType === "cloud") return "云端播放";
   if (playType === "external") return "Watch on Platform";
   return "Unavailable";
+}
+
+export type AiSubtitleSupport = "web_supported" | "embed_limited" | "extension_required" | "login_required" | "unavailable";
+
+export function aiSubtitleCompatibility(platformId: string, playType: PlayType, status: PlaybackStatus) {
+  if (status === "login_required") {
+    return {
+      support: "login_required" as const,
+      label: "需要登录",
+      description: "需要官方账号后才能观看；不会绕过登录或会员限制。",
+      stars: 0,
+      recommended: false,
+    };
+  }
+  if (status === "expired" || status === "private" || playType === "unavailable") {
+    return {
+      support: "unavailable" as const,
+      label: "不可用",
+      description: "资源失效、私密或暂不可访问。",
+      stars: 0,
+      recommended: false,
+    };
+  }
+  if (playType === "direct") {
+    return {
+      support: "web_supported" as const,
+      label: "支持网页AI字幕",
+      description: "网页可以读取视频音频/画面/字幕轨，可直接生成中文字幕。",
+      stars: 4,
+      recommended: true,
+    };
+  }
+  if (playType === "cloud") {
+    return {
+      support: "web_supported" as const,
+      label: "云盘字幕增强 ★★★★★",
+      description: "适合作为 AI 字幕增强入口：在用户授权访问文件后，可生成并缓存中文/英文/双语字幕；不会绕过云盘权限。",
+      stars: 5,
+      recommended: true,
+    };
+  }
+  if (playType === "embed") {
+    return {
+      support: "embed_limited" as const,
+      label: "网页播放 · AI字幕受限",
+      description: platformId === "dailymotion"
+        ? "可在网页播放，但外部 iframe 通常不能被网页读取；若字幕按钮受限，请改用浏览器扩展或 direct 来源。"
+        : "外部 iframe 不能被网页读取音频或画面；需要浏览器扩展才能在平台播放器上叠加字幕。",
+      stars: 2,
+      recommended: false,
+    };
+  }
+  return {
+    support: "extension_required" as const,
+    label: "需要浏览器扩展",
+    description: "该来源需要跳转官方平台；网页无法读取第三方页面播放器，桌面端建议使用浏览器扩展。",
+    stars: 1,
+    recommended: false,
+  };
+}
+
+export function watchModeLabel(playType: PlayType, status: PlaybackStatus) {
+  if (status === "login_required") return "官方观看 · 需要登录";
+  if (playType === "direct" || playType === "embed") return "在线播放";
+  if (playType === "cloud") return "云盘观看";
+  if (playType === "external") return "官方平台";
+  return "暂不可用";
 }
 
 export function normalizePlayback(target: PlaybackTarget) {
@@ -56,7 +140,9 @@ export function normalizePlayback(target: PlaybackTarget) {
     playType,
     status,
     label: playbackLabel(playType, status),
+    watchMode: watchModeLabel(playType, status),
     videoId: videoIdFromUrl(target.url),
     qualityScore,
+    aiSubtitle: aiSubtitleCompatibility(target.platformId, playType, status),
   };
 }
