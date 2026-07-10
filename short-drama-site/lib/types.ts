@@ -94,6 +94,27 @@ export interface Submission extends SubmissionInput {
   createdAt: string;
 }
 
+export type PersonalAccountPlatform = "reelshort" | "dramabox" | "shortmax" | "goodshort" | "flextv" | "netshort" | "tiktok";
+export type PersonalAccountConnectionMode = "guest" | "personal_account" | "manual";
+export type PersonalAccountStatus = "not_connected" | "connected" | "expired" | "needs_action" | "disabled";
+
+export interface PersonalAccountConnection {
+  id: string;
+  platformId: PersonalAccountPlatform;
+  platformName: string;
+  mode: PersonalAccountConnectionMode;
+  accountLabel?: string;
+  status: PersonalAccountStatus;
+  lastSyncTime?: string;
+  syncedDramaCount: number;
+  failedCount: number;
+  loginRequiredCount: number;
+  privateCount: number;
+  note?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface AdapterResult {
   title: string;
   aliases: string[];

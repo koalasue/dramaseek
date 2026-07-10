@@ -112,6 +112,22 @@ create table if not exists crawl_runs (
   finished_at timestamptz
 );
 
+create table if not exists personal_account_connections (
+  id uuid primary key default gen_random_uuid(),
+  platform_id text unique not null references platforms(id),
+  mode text not null default 'manual' check (mode in ('guest', 'personal_account', 'manual')),
+  account_label text,
+  status text not null default 'not_connected' check (status in ('not_connected', 'connected', 'expired', 'needs_action', 'disabled')),
+  last_sync_time timestamptz,
+  synced_drama_count integer not null default 0,
+  failed_count integer not null default 0,
+  login_required_count integer not null default 0,
+  private_count integer not null default 0,
+  note text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 alter table platforms enable row level security;
 alter table dramas enable row level security;
 alter table drama_aliases enable row level security;
@@ -120,6 +136,7 @@ alter table sources enable row level security;
 alter table subtitles enable row level security;
 alter table submissions enable row level security;
 alter table crawl_runs enable row level security;
+alter table personal_account_connections enable row level security;
 
 create policy "public read platforms" on platforms for select using (true);
 create policy "public read published dramas" on dramas for select using (published = true);

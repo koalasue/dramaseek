@@ -1,6 +1,6 @@
 import { dramas as fallbackDramas, platforms as fallbackPlatforms, demoSubmissions } from "@/lib/seed";
 import { getSupabaseServer } from "@/lib/supabase/server";
-import type { Drama, Platform, Submission, SubmissionInput } from "@/lib/types";
+import type { Drama, PersonalAccountConnection, PersonalAccountConnectionMode, PersonalAccountPlatform, Platform, Submission, SubmissionInput } from "@/lib/types";
 
 type DramaRow = {
   id: string; slug: string; title_zh: string; title_en: string; synopsis: string; poster_url: string;
@@ -62,4 +62,118 @@ export async function listSubmissions(): Promise<Submission[]> {
   const { data, error } = await supabase.from("submissions").select("*").order("created_at", { ascending: false });
   if (error) throw new Error(error.message);
   return data.map((row) => ({ id: row.id, url: row.url, title: row.title, note: row.note, contact: row.contact, status: row.status, createdAt: row.created_at }));
+}
+
+const personalPlatformNames: Record<PersonalAccountPlatform, string> = {
+  reelshort: "ReelShort",
+  dramabox: "DramaBox",
+  shortmax: "ShortMax",
+  goodshort: "GoodShort",
+  flextv: "FlexTV",
+  netshort: "NetShort",
+  tiktok: "TikTok",
+};
+
+type PersonalAccountRow = {
+  id: string;
+  platform_id: PersonalAccountPlatform;
+  mode: PersonalAccountConnectionMode;
+  account_label?: string | null;
+  status: PersonalAccountConnection["status"];
+  last_sync_time?: string | null;
+  synced_drama_count: number;
+  failed_count: number;
+  login_required_count: number;
+  private_count: number;
+  note?: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+function mapPersonalAccount(row: PersonalAccountRow): PersonalAccountConnection {
+  return {
+    id: row.id,
+    platformId: row.platform_id,
+    platformName: personalPlatformNames[row.platform_id] ?? row.platform_id,
+    mode: row.mode,
+    accountLabel: row.account_label ?? undefined,
+    status: row.status,
+    lastSyncTime: row.last_sync_time ?? undefined,
+    syncedDramaCount: row.synced_drama_count,
+    failedCount: row.failed_count,
+    loginRequiredCount: row.login_required_count,
+    privateCount: row.private_count,
+    note: row.note ?? undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export async function listPersonalAccountConnections(): Promise<PersonalAccountConnection[]> {
+  const supabase = getSupabaseServer();
+  const now = new Date().toISOString();
+  if (!supabase) {
+    return (Object.keys(personalPlatformNames) as PersonalAccountPlatform[]).map((platformId) => ({
+      id: `demo:${platformId}`,
+      platformId,
+      platformName: personalPlatformNames[platformId],
+      mode: "manual",
+      status: "not_connected",
+      syncedDramaCount: 0,
+      failedCount: 0,
+      loginRequiredCount: 0,
+      privateCount: 0,
+      note: "演示模式：连接记录只用于个人同步规划，不会公开账号内容。",
+      createdAt: now,
+      updatedAt: now,
+    }));
+  }
+  const { data, error } = await supabase.from("personal_account_connections").select("*").order("updated_at", { ascending: false });
+  if (error) return [];
+  return (data as PersonalAccountRow[]).map(mapPersonalAccount);
+}
+
+export async function upsertPersonalAccountConnection(input: { platformId: PersonalAccountPlatform; mode: PersonalAccountConnectionMode; accountLabel?: string; note?: string }) {
+  const supabase = getSupabaseServer();
+  const now = new Date().toISOString();
+  if (!supabase) {
+    return {
+      id: crypto.randomUUID(),
+      platformId: input.platformId,
+      platformName: personalPlatformNames[input.platformId],
+      mode: input.mode,
+      accountLabel: input.accountLabel,
+      status: "connected",
+      syncedDramaCount: 0,
+      failedCount: 0,
+      loginRequiredCount: 0,
+      privateCount: 0,
+      note: input.note,
+      createdAt: now,
+      updatedAt: now,
+    } satisfies PersonalAccountConnection;
+  }
+  const { data, error } = await supabase.from("personal_account_connections").upsert({
+    platform_id: input.platformId,
+    mode: input.mode,
+    account_label: input.accountLabel,
+    note: input.note,
+    status: input.mode === "manual" ? "needs_action" : "connected",
+    updated_at: now,
+  }, { onConflict: "platform_id" }).select().single();
+  if (error) throw new Error(error.message);
+  return mapPersonalAccount(data as PersonalAccountRow);
+}
+
+export async function markPersonalAccountSynced(id: string) {
+  const supabase = getSupabaseServer();
+  const now = new Date().toISOString();
+  if (!supabase) return { ok: true, demo: true };
+  const { error } = await supabase.from("personal_account_connections").update({
+    last_sync_time: now,
+    updated_at: now,
+    status: "connected",
+  }).eq("id", id);
+  if (error) throw new Error(error.message);
+  return { ok: true };
 }

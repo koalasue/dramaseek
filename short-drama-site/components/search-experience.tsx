@@ -13,6 +13,7 @@ import { PlatformSearchFallback } from "@/components/platform-search-fallback";
 
 const recentSearchesKey = "dramaseek:recent-searches";
 type RecentSearch = { keyword: string; time: string };
+const platformTabOrder = ["dailymotion", "youtube", "reelshort", "dramabox", "netshort", "shortmax", "goodshort", "flextv", "tiktok"];
 
 export function SearchExperience({ dramas, platforms, initialQuery = "", initialPlatform = "all", embedded = false }: { dramas: Drama[]; platforms: Platform[]; initialQuery?: string; initialPlatform?: string; embedded?: boolean }) {
   const [query, setQuery] = useState(initialQuery);
@@ -23,6 +24,11 @@ export function SearchExperience({ dramas, platforms, initialQuery = "", initial
   const [liveLoading, setLiveLoading] = useState(false);
   const [platformStatus, setPlatformStatus] = useState<LiveSearchResponse["platformStatus"]>({});
   const [recentSearches, setRecentSearches] = useState<RecentSearch[]>([]);
+  const orderedPlatforms = useMemo(() => [...platforms].sort((a, b) => {
+    const left = platformTabOrder.indexOf(a.slug);
+    const right = platformTabOrder.indexOf(b.slug);
+    return (left === -1 ? 999 : left) - (right === -1 ? 999 : right) || a.name.localeCompare(b.name);
+  }), [platforms]);
   const allIndexedResults = useMemo(() => searchDramas(dramas, platforms, { query, platform: "all", language }), [dramas, platforms, query, language]);
   const results = useMemo(() => searchDramas(dramas, platforms, { query, platform, language }), [dramas, platforms, query, platform, language]);
   const visibleLive = useMemo(() => liveResources.filter((resource) => platform === "all" || resource.platformId === platform), [liveResources, platform]);
@@ -95,7 +101,7 @@ export function SearchExperience({ dramas, platforms, initialQuery = "", initial
 
       <div className="mt-3 overflow-x-auto pb-1" role="tablist" aria-label="按来源筛选">
         <div className="flex min-w-max gap-1.5">
-          {[{ slug: "all", name: "全部", count: totalCount }, ...platforms.map((item) => ({ slug: item.slug, name: item.name, count: counts[item.slug] ?? 0 }))].map((item) => <button key={item.slug} role="tab" aria-selected={platform === item.slug} onClick={() => setPlatform(item.slug)} className={`focus-ring pressable whitespace-nowrap rounded-lg border px-3 py-2 text-xs font-medium ${platform === item.slug ? "accent-bg border-transparent" : "surface line"}`}>{item.name} ({item.count})</button>)}
+          {[{ slug: "all", name: "全部", count: totalCount }, ...orderedPlatforms.map((item) => ({ slug: item.slug, name: item.name, count: counts[item.slug] ?? 0 }))].map((item) => <button key={item.slug} role="tab" aria-selected={platform === item.slug} onClick={() => setPlatform(item.slug)} className={`focus-ring pressable whitespace-nowrap rounded-lg border px-3 py-2 text-xs font-medium ${platform === item.slug ? "accent-bg border-transparent" : "surface line"}`}>{item.name} ({item.count})</button>)}
         </div>
       </div>
 
@@ -122,7 +128,7 @@ export function SearchExperience({ dramas, platforms, initialQuery = "", initial
       </div> : !liveLoading && visibleLive.length === 0 && <div className="surface mt-3 rounded-xl border line px-5 py-8 text-center"><MagnifyingGlass size={28} className="mx-auto text-muted" /><h3 className="mt-3 text-base font-semibold">没有通过正片筛选的资源</h3><p className="mx-auto mt-1.5 max-w-md text-xs leading-5 text-muted">该平台可能尚未接入实时接口，或搜索结果只有解说、预告与未匹配内容。</p><Link href="/submit" className="focus-ring accent-bg pressable mt-4 inline-flex rounded-lg px-4 py-2.5 text-sm font-semibold">提交资源</Link></div>}
       {query && platformStatus[platform === "all" ? "youtube" : platform] === "needs_key" && <p className="mt-3 text-xs text-muted">YouTube 实时搜索需要配置官方 Data API Key，目前计数为 0。</p>}
       {query && platform !== "all" && ["reelshort", "dramabox", "netshort"].includes(platform) && platformStatus[platform] === "needs_key" && <p className="mt-3 text-xs text-muted">该平台的实时发现需要配置 Firecrawl API Key，目前仅显示已收录资源。</p>}
-      <PlatformSearchFallback query={query} platforms={platforms} selectedPlatform={platform} />
+      <PlatformSearchFallback query={query} platforms={orderedPlatforms} selectedPlatform={platform} />
     </section>
   );
 }

@@ -13,7 +13,7 @@ import type { LiveSearchResource, Platform } from "@/lib/types";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-const platformRankingOrder = ["youtube", "reelshort", "dramabox", "netshort", "dailymotion", "shortmax", "goodshort", "flextv", "tiktok"];
+const platformRankingOrder = ["dailymotion", "youtube", "reelshort", "dramabox", "netshort", "shortmax", "goodshort", "flextv", "tiktok"];
 const discoveryPlatforms = ["reelshort", "dramabox", "shortmax", "goodshort", "flextv", "netshort"] as const;
 
 function hotTrendLabel(resource: LiveSearchResource) {

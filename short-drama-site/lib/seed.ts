@@ -1,6 +1,7 @@
 import type { Drama, Platform, Submission } from "@/lib/types";
 
 export const platforms: Platform[] = [
+  { id: "dailymotion", slug: "dailymotion", name: "Dailymotion", domain: "dailymotion.com", color: "#d94f45", offlineNote: "仅展示 Dailymotion 官方页面提供的观看或离线选项。" },
   { id: "youtube", slug: "youtube", name: "YouTube", domain: "youtube.com", color: "#e33b32", offlineNote: "部分内容可通过 YouTube Premium 在官方应用内离线观看。" },
   { id: "reelshort", slug: "reelshort", name: "ReelShort", domain: "reelshort.com", color: "#d94f45", offlineNote: "请以 ReelShort 官方应用当前提供的离线能力为准。" },
   { id: "dramabox", slug: "dramabox", name: "DramaBox", domain: "dramabox.com", color: "#c8433a", offlineNote: "请在 DramaBox 官方应用内查看缓存与离线选项。" },
@@ -8,7 +9,6 @@ export const platforms: Platform[] = [
   { id: "shortmax", slug: "shortmax", name: "ShortMax", domain: "shortmax.app", color: "#d94f45", offlineNote: "请以 ShortMax 官方应用当前提供的离线能力为准。" },
   { id: "goodshort", slug: "goodshort", name: "GoodShort", domain: "goodshort.com", color: "#c8433a", offlineNote: "请以 GoodShort 官方应用当前提供的离线能力为准。" },
   { id: "flextv", slug: "flextv", name: "FlexTV", domain: "flextv.cc", color: "#b93831", offlineNote: "请以 FlexTV 官方应用当前提供的离线能力为准。" }
-  ,{ id: "dailymotion", slug: "dailymotion", name: "Dailymotion", domain: "dailymotion.com", color: "#d94f45", offlineNote: "仅展示 Dailymotion 官方页面提供的观看或离线选项。" }
   ,{ id: "tiktok", slug: "tiktok", name: "TikTok", domain: "tiktok.com", color: "#c8433a", offlineNote: "仅展示 TikTok 官方应用当前允许的保存或离线观看选项。" }
 ];
 
