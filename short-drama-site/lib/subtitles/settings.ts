@@ -4,15 +4,15 @@ export const SUBTITLE_SETTINGS_KEY = "short-drama-subtitle-settings-v1";
 
 export const defaultSubtitleSettings: SubtitleSettings = {
   subtitle: {
-    mode: "fixed", fontSize: 22, fontWeight: 600, color: "#ffffff",
-    background: "#050505", backgroundOpacity: 0.72, outline: true, shadow: true,
-    maxLines: 2, width: 82, align: "center", verticalOffset: 88,
+    mode: "fixed", fontSize: 20, fontWeight: 600, color: "#ffffff",
+    background: "#050505", backgroundOpacity: 0.58, outline: true, shadow: true,
+    maxLines: 2, width: 78, align: "center", verticalOffset: 128,
     floatingX: 50, floatingY: 72,
   },
   button: { size: 48, opacity: 0.94, edge: "right", y: 42, autoHideSeconds: 5, alwaysVisible: false },
   model: "auto",
-  sourceMode: "auto",
-  subtitleDisplay: "bilingual",
+  sourceMode: "audio",
+  subtitleDisplay: "translated",
 };
 
 function numberIn(value: unknown, min: number, max: number, fallback: number) {

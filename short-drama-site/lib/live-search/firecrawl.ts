@@ -44,7 +44,12 @@ function titleMatches(title: string, query: string) {
   return !remainder || /^(?:watch|online|full|episodes?|series|movie|reelshort|dramabox|netshort|短剧|全集|完整版)+$/.test(remainder);
 }
 
-export function filterFirecrawlResults(items: FirecrawlSearchItem[], query: string): LiveSearchResource[] {
+function looksLikeDramaPage(pathname: string, evidence: string) {
+  return /\/(?:drama|movie|series|show|video|play|episode|full-episodes?)\//i.test(pathname) ||
+    /\b(drama|episodes?|full|series|romance|ceo|billionaire|mafia|werewolf|alpha|marriage)\b/i.test(evidence);
+}
+
+export function filterFirecrawlResults(items: FirecrawlSearchItem[], query: string, options: { broad?: boolean } = {}): LiveSearchResource[] {
   const seen = new Set<string>();
 
   return items.flatMap((item) => {
@@ -55,7 +60,10 @@ export function filterFirecrawlResults(items: FirecrawlSearchItem[], query: stri
     const evidence = `${title} ${description} ${item.markdown?.slice(0, 1200) ?? ""}`;
     let pathname = "";
     try { pathname = new URL(url).pathname; } catch { return []; }
-    if (!platform || !titleMatches(title, query) || rejectedContent.test(evidence) || genericPages.test(pathname)) return [];
+    if (!platform || rejectedContent.test(evidence) || genericPages.test(pathname)) return [];
+    if (options.broad) {
+      if (!looksLikeDramaPage(pathname, evidence)) return [];
+    } else if (!titleMatches(title, query)) return [];
 
     const key = `${platform.id}:${pathname.replace(/\/$/, "")}`;
     if (seen.has(key)) return [];

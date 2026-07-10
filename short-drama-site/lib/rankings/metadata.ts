@@ -16,7 +16,8 @@ const seoFragments = [
   /(?:全集|全剧|完整版|短剧|官方|下载|观看)/g,
 ];
 
-const genericTitlePattern = /\b(watch free|tv shows|movies|tubi|official channel|short drama app|full movie)\b/i;
+const genericTitlePattern = /\b(watch free|tv shows|movies|tubi|official channel|short drama app|full movie|what'?s|supposed to|employee|responsibility|accept you|watch more|episodes? on)\b/i;
+const dialoguePattern = /\b(i|you|he|she|we|they|my|your|his|her|our|their|that'?s|what'?s|don'?t|can'?t|won'?t|i'?m|you'?re|she'?s|he'?s)\b/i;
 
 function decodeHtml(value: string) {
   return value
@@ -33,19 +34,27 @@ function titleCaseIfNeeded(value: string) {
 }
 
 export function cleanDramaTitle(rawTitle: string) {
-  let title = decodeHtml(rawTitle)
+  const decoded = decodeHtml(rawTitle);
+  const bracketTitles = [...decoded.matchAll(/[\[【]([^\]】]{3,90})[\]】]/g)]
+    .map((match) => match[1].trim())
+    .filter((value) => !isRejectedRankingContent(value) && !genericTitlePattern.test(value));
+  const bracketTitle = bracketTitles.at(-1);
+  if (bracketTitle) return cleanDramaTitle(bracketTitle);
+
+  let title = decoded
     .replace(/https?:\/\/\S+/gi, " ")
     .replace(/#[\p{L}\p{N}_-]+/gu, " ")
-    .replace(/\[[^\]]*(?:watch|ep|episode|full|trailer|recap|review|official|drama|link)[^\]]*\]/gi, " ")
+    .replace(/\[[^\]]*(?:watch|ep|episode|full|trailer|recap|review|official|link)[^\]]*\]/gi, " ")
     .replace(/\([^\)]*(?:watch|ep|episode|full|trailer|recap|review|official|drama|link)[^\)]*\)/gi, " ");
 
-  title = title.split(/\s+[|｜]\s+|\s+-\s+|\s+–\s+/).find((part) => !genericTitlePattern.test(part)) ?? title;
+  const segments = title.split(/\s+[|｜]\s+|\s+-\s+|\s+–\s+|:\s+/).map((part) => part.trim()).filter(Boolean);
+  title = segments.find((part) => !genericTitlePattern.test(part) && !dialoguePattern.test(part)) ?? segments.find((part) => !genericTitlePattern.test(part)) ?? title;
   for (const pattern of seoFragments) title = title.replace(pattern, " ");
   title = title.replace(platformNames, " ");
   title = title.replace(/[🎬🔥💕💖💘❤️❤💔✨⭐️🌹]+/g, " ");
   title = title.replace(/\s{2,}/g, " ").replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}!?'"’]+$/gu, "").trim();
 
-  return title ? titleCaseIfNeeded(title) : decodeHtml(rawTitle).trim();
+  return title ? titleCaseIfNeeded(title) : decoded.trim();
 }
 
 export function shortDescription(resource: Pick<LiveSearchResource, "title" | "description" | "genre"> & { cleanTitle?: string }) {
@@ -55,7 +64,7 @@ export function shortDescription(resource: Pick<LiveSearchResource, "title" | "d
     .replace(platformNames, "")
     .replace(/\s{2,}/g, " ")
     .trim();
-  if (rawDescription && rawDescription.length >= 36 && !isRejectedRankingContent(rawDescription)) {
+  if (rawDescription && rawDescription.length >= 36 && !isRejectedRankingContent(rawDescription) && !genericTitlePattern.test(rawDescription)) {
     return rawDescription.length > 150 ? `${rawDescription.slice(0, 148).trim()}…` : rawDescription;
   }
 

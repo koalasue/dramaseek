@@ -12,6 +12,7 @@ import { PlatformMark } from "@/components/platform-mark";
 import { PlatformSearchFallback } from "@/components/platform-search-fallback";
 
 const recentSearchesKey = "dramaseek:recent-searches";
+type RecentSearch = { keyword: string; time: string };
 
 export function SearchExperience({ dramas, platforms, initialQuery = "", initialPlatform = "all", embedded = false }: { dramas: Drama[]; platforms: Platform[]; initialQuery?: string; initialPlatform?: string; embedded?: boolean }) {
   const [query, setQuery] = useState(initialQuery);
@@ -21,7 +22,7 @@ export function SearchExperience({ dramas, platforms, initialQuery = "", initial
   const [liveResources, setLiveResources] = useState<LiveSearchResource[]>([]);
   const [liveLoading, setLiveLoading] = useState(false);
   const [platformStatus, setPlatformStatus] = useState<LiveSearchResponse["platformStatus"]>({});
-  const [recentSearches, setRecentSearches] = useState<string[]>([]);
+  const [recentSearches, setRecentSearches] = useState<RecentSearch[]>([]);
   const allIndexedResults = useMemo(() => searchDramas(dramas, platforms, { query, platform: "all", language }), [dramas, platforms, query, language]);
   const results = useMemo(() => searchDramas(dramas, platforms, { query, platform, language }), [dramas, platforms, query, platform, language]);
   const visibleLive = useMemo(() => liveResources.filter((resource) => platform === "all" || resource.platformId === platform), [liveResources, platform]);
@@ -35,8 +36,8 @@ export function SearchExperience({ dramas, platforms, initialQuery = "", initial
 
   useEffect(() => {
     try {
-      const saved = JSON.parse(window.localStorage.getItem(recentSearchesKey) ?? "[]") as string[];
-      setRecentSearches(saved.filter(Boolean).slice(0, 8));
+      const saved = JSON.parse(window.localStorage.getItem(recentSearchesKey) ?? "[]") as Array<string | RecentSearch>;
+      setRecentSearches(saved.map((item) => typeof item === "string" ? { keyword: item, time: new Date().toISOString() } : item).filter((item) => item.keyword).slice(0, 10));
     } catch {
       setRecentSearches([]);
     }
@@ -47,7 +48,7 @@ export function SearchExperience({ dramas, platforms, initialQuery = "", initial
     if (value.length < 2) return;
     const timer = window.setTimeout(() => {
       setRecentSearches((items) => {
-        const next = [value, ...items.filter((item) => item.toLowerCase() !== value.toLowerCase())].slice(0, 8);
+        const next = [{ keyword: value, time: new Date().toISOString() }, ...items.filter((item) => item.keyword.toLowerCase() !== value.toLowerCase())].slice(0, 10);
         window.localStorage.setItem(recentSearchesKey, JSON.stringify(next));
         return next;
       });
@@ -88,8 +89,8 @@ export function SearchExperience({ dramas, platforms, initialQuery = "", initial
 
       {!!recentSearches.length && <div className="mt-3 flex flex-wrap items-center gap-1.5 text-xs">
         <span className="mr-1 text-muted">Recent Searches</span>
-        {recentSearches.map((item) => <button key={item} onClick={() => setQuery(item)} className="focus-ring rounded-full bg-[color:var(--surface-strong)] px-2.5 py-1 font-medium">{item}</button>)}
-        <button onClick={() => { window.localStorage.removeItem(recentSearchesKey); setRecentSearches([]); }} className="focus-ring rounded-full px-2.5 py-1 text-muted underline-offset-4 hover:underline">Clear History</button>
+        {recentSearches.map((item) => <span key={`${item.keyword}:${item.time}`} className="inline-flex items-center overflow-hidden rounded-full bg-[color:var(--surface-strong)] font-medium"><button onClick={() => setQuery(item.keyword)} className="focus-ring px-2.5 py-1">{item.keyword}</button><button onClick={() => setRecentSearches((items) => { const next = items.filter((entry) => entry.time !== item.time); window.localStorage.setItem(recentSearchesKey, JSON.stringify(next)); return next; })} className="focus-ring border-l line px-2 py-1 text-muted" aria-label={`删除 ${item.keyword}`}>×</button></span>)}
+        <button onClick={() => { window.localStorage.removeItem(recentSearchesKey); setRecentSearches([]); }} className="focus-ring rounded-full px-2.5 py-1 text-muted underline-offset-4 hover:underline">Clear All</button>
       </div>}
 
       <div className="mt-3 overflow-x-auto pb-1" role="tablist" aria-label="按来源筛选">

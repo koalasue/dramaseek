@@ -70,6 +70,10 @@ function isTrustedPublicPlayable(resource: LiveSearchResource) {
   return resource.platformId === "dailymotion" && resource.discoverySource === "official_api" && Boolean(resource.thumbnailUrl) && (resource.durationSeconds ?? 0) >= 45;
 }
 
+function isTrustedOfficialPlatformResource(resource: LiveSearchResource) {
+  return officialDramaPlatforms.includes(resource.platformId as typeof officialDramaPlatforms[number]) && Boolean(resource.official_source) && Boolean(resource.thumbnailUrl);
+}
+
 export function enrichRankingResource(resource: LiveSearchResource, index = 0): LiveSearchResource {
   const evidence = `${resource.title} ${resource.description ?? ""} ${resource.uploader} ${resource.url}`;
   const sourceType = resource.source_type ??
@@ -130,7 +134,7 @@ export function isEligibleRankingResource(resource: LiveSearchResource) {
   if (isRejectedRankingContent(evidence)) return false;
   if (!resource.title || !resource.thumbnailUrl) return false;
   if (!resource.official_source && !isTrustedPublicPlayable(resource)) return false;
-  if (!resource.episodeCount) return false;
+  if (!resource.episodeCount && !isTrustedOfficialPlatformResource(resource)) return false;
   if ((resource.confidence_score ?? 0) < 70) return false;
   return resource.contentType === "full_series" || Boolean(resource.episodeCount);
 }

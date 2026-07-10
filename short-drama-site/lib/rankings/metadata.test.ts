@@ -17,6 +17,9 @@ const resource: LiveSearchResource = {
 describe("ranking drama metadata", () => {
   it("cleans SEO title fragments, episode ranges and hashtags", () => {
     expect(cleanDramaTitle(resource.title)).toBe("Never Divorce a Secret Billionaire Heiress");
+    expect(cleanDramaTitle("I accept you, Jackson! [Fated to My Forbidden Alpha]")).toBe("Fated to My Forbidden Alpha");
+    expect(cleanDramaTitle("What's that supposed to mean? [Goodbye, My CEO]")).toBe("Goodbye, My CEO");
+    expect(cleanDramaTitle("She's my employee. My responsibility! [Goodbye, My CEO]")).toBe("Goodbye, My CEO");
   });
 
   it("generates useful metadata for ranking cards", () => {

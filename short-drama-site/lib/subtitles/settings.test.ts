@@ -3,7 +3,8 @@ import { defaultSubtitleSettings, readSubtitleSettings, sanitizeSubtitleSettings
 
 describe("subtitle settings", () => {
   it("uses readable defaults above native captions", () => {
-    expect(defaultSubtitleSettings.subtitle).toMatchObject({ mode: "fixed", maxLines: 2, verticalOffset: 88 });
+    expect(defaultSubtitleSettings.subtitle).toMatchObject({ mode: "fixed", maxLines: 2, verticalOffset: 128 });
+    expect(defaultSubtitleSettings.sourceMode).toBe("audio");
   });
   it("clamps unsafe persisted values", () => {
     const value = sanitizeSubtitleSettings({ subtitle: { fontSize: 999, width: 2, floatingY: -30 }, button: { size: 2, opacity: 9 } });
@@ -15,8 +16,9 @@ describe("subtitle settings", () => {
   it("keeps OCR source mode when persisted", () => {
     expect(sanitizeSubtitleSettings({ sourceMode: "ocr" }).sourceMode).toBe("ocr");
   });
-  it("keeps bilingual subtitle display mode by default", () => {
-    expect(defaultSubtitleSettings.subtitleDisplay).toBe("bilingual");
+  it("uses Chinese subtitle display mode by default", () => {
+    expect(defaultSubtitleSettings.subtitleDisplay).toBe("translated");
     expect(sanitizeSubtitleSettings({ subtitleDisplay: "translated" }).subtitleDisplay).toBe("translated");
+    expect(sanitizeSubtitleSettings({ subtitleDisplay: "bilingual" }).subtitleDisplay).toBe("bilingual");
   });
 });

@@ -3,6 +3,7 @@ import { ArrowSquareOut, WarningCircle } from "@phosphor-icons/react/dist/ssr";
 import { validateResourceUrl } from "@/lib/url-policy";
 import { normalizePlayback } from "@/lib/playback";
 import { WatchExperience } from "@/components/watch-experience";
+import { AvailableSources } from "@/components/available-sources";
 
 export default async function WatchPage({ searchParams }: { searchParams: Promise<{ url?: string; title?: string }> }) {
   const params = await searchParams;
@@ -15,6 +16,7 @@ export default async function WatchPage({ searchParams }: { searchParams: Promis
   return <section className="page-shell py-6 md:py-10">
     <div className="mb-4 flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs text-muted">正在播放 · {playback.label}</p><h1 className="mt-1 text-lg font-semibold">{params.title || "海外短剧"}</h1></div><a href={rawUrl} target="_blank" rel="noopener noreferrer" className="focus-ring pressable inline-flex items-center gap-2 rounded-xl border line px-4 py-2.5 text-sm font-medium">在官方平台打开<ArrowSquareOut size={16}/></a></div>
     <WatchExperience initialUrl={rawUrl} title={params.title || "短剧播放器"} />
+    <AvailableSources title={params.title || "海外短剧"} currentUrl={rawUrl} platform={platform} />
     <p className="mx-auto mt-4 max-w-xl text-center text-xs leading-5 text-muted">视频出现后，画面右侧会显示“字幕”按钮。电脑请选择当前标签页并共享音频；手机浏览器会在需要时请求麦克风权限。若平台禁止嵌入，请使用上方官方入口。</p>
   </section>;
 }

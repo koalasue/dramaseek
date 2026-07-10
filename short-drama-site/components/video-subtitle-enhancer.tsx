@@ -10,7 +10,9 @@ const SAMPLE_RATE = 16_000;
 const OCR_INTERVAL_MS = 2600;
 const ASR_CHUNK_SECONDS = 3.2;
 const MIN_AUDIO_RMS = 0.012;
+const MIN_ASR_CONFIDENCE = 0.68;
 const garbageSubtitlePattern = /\b(thanks?\s+for\s+watching|subscribe|follow|like\s+(?:and\s+)?share|official\s+channel|trailer|episode\s+preview|preview|watermark|click\s+to\s+subscribe|turn\s+on\s+notifications?)\b|感谢观看|订阅|点赞|关注|转发|预告|片花|水印/i;
+const nonDialoguePattern = /^\s*[\[(（【]?\s*(?:cl|sound|sfx|music|door|knock|laugh|laughs|laughing|cry|crying|noise|sigh|sighs|applause|silence|breath|breathing|phone ringing|ringing|footsteps?|thunder|door opening|door closing|dramatic music|background music|音乐|笑声|哭声|噪音|开门|关门|脚步声|叹气)\b[^)\]）】]*[\])）】]?\s*$/i;
 
 type TesseractModule = {
   recognize: (image: CanvasImageSource, language?: string, options?: object) => Promise<{ data?: { text?: string; confidence?: number } }>;
@@ -38,6 +40,8 @@ function isLowQualitySubtitle(text: string) {
   const cleaned = cleanSubtitleText(text);
   if (!cleaned || cleaned.length < 2 || cleaned.length > 220) return true;
   if (garbageSubtitlePattern.test(cleaned)) return true;
+  if (nonDialoguePattern.test(cleaned)) return true;
+  if (/^[\[(（【].{0,60}[\])）】]$/.test(cleaned) && !/[?!'"“”‘’]/.test(cleaned)) return true;
   const letters = cleaned.replace(/[^a-zA-Z\u4e00-\u9fff]/g, "");
   if (letters.length < 2) return true;
   const repeated = cleaned.match(/\b(\w{2,})\b(?:\s+\1\b){2,}/i);
@@ -55,7 +59,7 @@ async function translate(text: string) {
     const response = await fetch("/api/subtitles/translate", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ sourceLanguage: "auto", targetLanguage: "zho_Hans", segments: [{ text }] }),
+      body: JSON.stringify({ sourceLanguage: "auto", targetLanguage: "zho_Hans", segments: [{ text }], mode: "contextual_short_drama" }),
     });
     if (response.ok) {
       const payload = await response.json() as { segments?: Array<{ translatedText?: string; translated_text?: string; text?: string; language?: string }> };
@@ -74,11 +78,35 @@ async function translate(text: string) {
   return { text: await translator.translate(text), language, translated: true };
 }
 
+type CaptureCapableVideo = HTMLVideoElement & {
+  captureStream?: () => MediaStream;
+  mozCaptureStream?: () => MediaStream;
+};
+
 function shouldUseMicrophoneFirst() {
   return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) || !navigator.mediaDevices.getDisplayMedia;
 }
 
-async function captureAudio(stopTracks: () => void) {
+function sourceLabel(source?: SubtitleCue["source"]) {
+  if (source === "asr") return "ASR";
+  if (source === "captions") return "Original Subtitle";
+  if (source === "ocr") return "OCR";
+  return "Audio";
+}
+
+function captureVideoElementAudio(video: HTMLVideoElement) {
+  const source = video as CaptureCapableVideo;
+  const media = source.captureStream?.() ?? source.mozCaptureStream?.();
+  if (!media?.getAudioTracks().length) return null;
+  return media;
+}
+
+async function captureAudio(target: Element | null, stopTracks: () => void) {
+  if (target instanceof HTMLVideoElement) {
+    const media = captureVideoElementAudio(target);
+    if (media) return media;
+    if (target.paused) throw new Error("请先播放视频，再开启实时字幕。");
+  }
   if (shouldUseMicrophoneFirst()) return navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true }, video: false });
   const display = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
   if (display.getAudioTracks().length) return display;
@@ -133,6 +161,7 @@ export function VideoSubtitleEnhancer() {
   const worker = useRef<Worker | null>(null), stream = useRef<MediaStream | null>(null);
   const context = useRef<AudioContext | null>(null), processor = useRef<ScriptProcessorNode | null>(null);
   const samples = useRef<number[]>([]), busy = useRef(false), dragged = useRef(false);
+  const lastAcceptedCue = useRef<{ text: string; at: number } | null>(null);
   const captionCleanup = useRef<(() => void) | null>(null);
   const ocrCleanup = useRef<(() => void) | null>(null);
 
@@ -157,8 +186,18 @@ export function VideoSubtitleEnhancer() {
 
   const publishCue = useCallback(async (rawText: string, source: SubtitleCue["source"], startedAt: number, confidence: number) => {
     const originalText = cleanSubtitleText(rawText);
+    if (source === "asr" && confidence < MIN_ASR_CONFIDENCE) {
+      setSession((current) => ({ ...current, status: "listening", error: "已过滤低置信度 ASR 结果。" }));
+      return;
+    }
     if (isLowQualitySubtitle(originalText)) {
-      setSession((current) => ({ ...current, status: "listening", error: "已过滤低质量字幕或片尾/水印文字。" }));
+      setSession((current) => ({ ...current, status: "listening", error: "已过滤非对白、音效或片尾/水印文字。" }));
+      return;
+    }
+    const normalized = originalText.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+    const recent = lastAcceptedCue.current;
+    if (recent && recent.text === normalized && Date.now() - recent.at < 8500) {
+      setSession((current) => ({ ...current, status: "listening", error: "已过滤重复字幕。" }));
       return;
     }
     const output = await translate(originalText);
@@ -177,7 +216,9 @@ export function VideoSubtitleEnhancer() {
       confidence,
       source,
     };
+    lastAcceptedCue.current = { text: normalized, at: Date.now() };
     setCue(next);
+    window.dispatchEvent(new CustomEvent("dramaseek:subtitle-cue", { detail: next }));
     setSession((current) => ({
       ...current,
       status: "listening",
@@ -217,7 +258,8 @@ export function VideoSubtitleEnhancer() {
   const start = async () => {
     try {
       setSession({ status: "requesting", model: settings.model });
-      if (settings.sourceMode !== "audio" && settings.sourceMode !== "ocr" && target instanceof HTMLVideoElement && target.textTracks.length) {
+      const sourceMode = settings.sourceMode === "auto" && target instanceof HTMLVideoElement && target.textTracks.length ? "captions" : settings.sourceMode;
+      if (sourceMode === "captions" && target instanceof HTMLVideoElement && target.textTracks.length) {
         const track = [...target.textTracks].find((item) => item.kind === "subtitles" || item.kind === "captions") ?? target.textTracks[0];
         track.mode = "hidden";
         const onCue = () => {
@@ -230,22 +272,22 @@ export function VideoSubtitleEnhancer() {
         track.addEventListener("cuechange", onCue); captionCleanup.current = () => track.removeEventListener("cuechange", onCue);
         setSession({ status: "listening", model: settings.model }); onCue(); return;
       }
-      if (settings.sourceMode === "ocr") {
+      if (sourceMode === "ocr") {
         await startOcrSession();
         return;
       }
-      if (settings.sourceMode === "captions") throw new Error("该视频没有可读取的字幕轨，请切换为“播放音频识别”");
-      const media = await captureAudio(stop);
+      if (sourceMode === "captions") throw new Error("该视频没有可读取的字幕轨，请切换为“播放音频识别”");
+      const media = await captureAudio(target, stop);
       if (!media.getAudioTracks().length) { media.getTracks().forEach((track) => track.stop()); throw new Error("电脑请勾选“共享音频”；手机请允许麦克风收音"); }
       stream.current = media; media.getTracks().forEach((track) => track.addEventListener("ended", stop, { once: true }));
       const localWorker = new Worker(new URL("../workers/transcription.worker.ts", import.meta.url), { type: "module" }); worker.current = localWorker;
       localWorker.onmessage = async (event: MessageEvent<{ type: string; status?: TranslationSession["status"]; text?: string; startedAt?: number; error?: string }>) => {
         if (event.data.type === "status") setSession((current) => ({ ...current, status: event.data.status ?? "loading_model" }));
         if (event.data.type === "error") { busy.current = false; setSession((current) => ({ ...current, status: "error", error: event.data.error })); }
-        if (event.data.type === "result") {
+      if (event.data.type === "result") {
           try {
             if (!event.data.text) return;
-            await publishCue(event.data.text, "asr", event.data.startedAt ?? Date.now(), 0.82);
+            await publishCue(event.data.text, "asr", event.data.startedAt ?? Date.now(), 0.86);
           } catch (error) { setSession((current) => ({ ...current, status: "error", error: error instanceof Error ? error.message : "翻译失败" })); }
           finally { busy.current = false; }
         }
@@ -266,15 +308,6 @@ export function VideoSubtitleEnhancer() {
       source.connect(node); node.connect(audio.destination); setSession({ status: "listening", model: settings.model });
     } catch (error) {
       const message = error instanceof Error ? error.message : "无法开启实时字幕";
-      if (settings.sourceMode === "auto" && target) {
-        stop();
-        try {
-          await startOcrSession(`音频识别不可用，已临时切换到 OCR 备用。${message}`);
-          return;
-        } catch {
-          // Fall through to the original error below.
-        }
-      }
       stop();
       setSession({ status: "error", model: settings.model, error: message });
     }
@@ -294,10 +327,12 @@ export function VideoSubtitleEnhancer() {
 
   const showOriginal = cue && (settings.subtitleDisplay === "original" || settings.subtitleDisplay === "bilingual");
   const showTranslated = cue && (settings.subtitleDisplay === "translated" || settings.subtitleDisplay === "bilingual");
+  const fixedTop = box.bottom - Math.max(64, Math.min(180, subtitle.verticalOffset || box.height * 0.18));
   const overlay = <>
-    {cue && settings.subtitleDisplay !== "off" && <div role="status" aria-live="polite" className="fixed -translate-x-1/2 -translate-y-1/2 rounded-md px-3 py-1.5" style={{ zIndex: 9997, left: subtitle.mode === "floating" ? `${subtitle.floatingX}%` : box.left + box.width / 2, top: subtitle.mode === "floating" ? `${subtitle.floatingY}%` : box.bottom - subtitle.verticalOffset, width: `${subtitle.width}%`, maxWidth: box.width * subtitle.width / 100, color: subtitle.color, background: rgba(subtitle.background, subtitle.backgroundOpacity), textAlign: subtitle.align, lineHeight: 1.35, textShadow: subtitle.shadow ? "0 2px 6px #000" : "none", WebkitTextStroke: subtitle.outline ? "0.45px rgba(0,0,0,.72)" : "0", overflow: "hidden", pointerEvents: "none" }}>
+    {cue && settings.subtitleDisplay !== "off" && <div role="status" aria-live="polite" className="fixed -translate-x-1/2 -translate-y-1/2 rounded px-2.5 py-1" style={{ zIndex: 9997, left: subtitle.mode === "floating" ? `${subtitle.floatingX}%` : box.left + box.width / 2, top: subtitle.mode === "floating" ? `${subtitle.floatingY}%` : fixedTop, width: `${subtitle.width}%`, maxWidth: box.width * subtitle.width / 100, color: subtitle.color, background: rgba(subtitle.background, subtitle.backgroundOpacity), textAlign: subtitle.align, lineHeight: 1.32, textShadow: subtitle.shadow ? "0 2px 6px #000" : "none", WebkitTextStroke: subtitle.outline ? "0.35px rgba(0,0,0,.72)" : "0", overflow: "hidden", pointerEvents: "none" }}>
       {showOriginal && <p className="m-0 line-clamp-2 text-[0.72em] font-medium opacity-90" style={{ fontSize: Math.max(12, Math.round(subtitle.fontSize * 0.68)) }}>{cue.originalText}</p>}
       {showTranslated && <p className="m-0 line-clamp-2" style={{ fontSize: subtitle.fontSize, fontWeight: Math.max(subtitle.fontWeight, 600) }}>{cue.translatedText}</p>}
+      <p className="m-0 mt-0.5 text-[10px] font-medium opacity-55">Subtitle Source: {sourceLabel(cue.source)} · Confidence {Math.round(cue.confidence * 100)}%</p>
     </div>}
     <div className="fixed" style={{ zIndex: 9998, left: buttonLeft, top: buttonTop }}>
       <button onPointerDown={beginButtonDrag} className="focus-ring subtitle-fab flex items-center justify-center rounded-full border border-white/25 bg-black text-white shadow-xl" style={{ width: settings.button.size, height: settings.button.size, opacity: settings.button.opacity }} onClick={() => { if (dragged.current) { dragged.current = false; return; } if (active) stop(); else void start(); }} onContextMenu={(event) => { event.preventDefault(); setOpen(true); }} aria-label={active ? "停止实时字幕" : "开启实时字幕"}>{active ? <Pause size={20} weight="fill"/> : <Subtitles size={24} weight="bold"/>}</button>
@@ -309,7 +344,7 @@ export function VideoSubtitleEnhancer() {
       <div className="sticky top-0 z-10 -mx-5 -mt-5 flex items-center justify-between border-b line bg-[color:var(--surface)] px-5 py-4"><div><h2 className="font-semibold">中文字幕设置</h2><p className="mt-1 text-xs text-muted">{session.error ?? "样式只保存在本机"}</p></div><button className="focus-ring grid min-h-11 min-w-11 place-items-center rounded-xl border line" onClick={() => setOpen(false)} aria-label="关闭"><X size={18}/></button></div>
       <div className="mt-5 rounded-xl bg-black p-5 text-center"><span className="inline-grid gap-1 rounded-md px-3 py-1.5" style={{ color: subtitle.color, background: rgba(subtitle.background, subtitle.backgroundOpacity) }}><span style={{ fontSize: Math.max(12, Math.round(subtitle.fontSize * 0.68)) }}>I&apos;m supposed to be the perfect fiancée.</span><span style={{ fontSize: Math.min(subtitle.fontSize, 26), fontWeight: Math.max(subtitle.fontWeight, 600) }}>我本该成为完美的未婚妻。</span></span></div>
       <div className="mt-5 grid gap-4 text-sm">
-        <label className="grid gap-2 font-medium">字幕<select className="surface-strong rounded-xl border line px-3 py-2.5" value={settings.subtitleDisplay} onChange={(e) => setSettings((value) => ({ ...value, subtitleDisplay: e.target.value as SubtitleSettings["subtitleDisplay"] }))}><option value="off">关闭</option><option value="original">English</option><option value="translated">中文</option><option value="bilingual">双语</option></select></label>
+        <label className="grid gap-2 font-medium">字幕模式<select className="surface-strong rounded-xl border line px-3 py-2.5" value={settings.subtitleDisplay} onChange={(e) => setSettings((value) => ({ ...value, subtitleDisplay: e.target.value as SubtitleSettings["subtitleDisplay"] }))}><option value="translated">中文</option><option value="bilingual">双语</option><option value="original">English</option><option value="off">关闭</option></select></label>
         <label className="grid gap-2 font-medium">显示方式<select className="surface-strong rounded-xl border line px-3 py-2.5" value={subtitle.mode} onChange={(e) => updateSubtitle({ mode: e.target.value as "fixed" | "floating" })}><option value="fixed">固定在原字幕上方</option><option value="floating">自由悬浮</option></select></label>
         <label className="grid gap-2 font-medium">字号：{subtitle.fontSize}px<input type="range" min="14" max="42" value={subtitle.fontSize} onChange={(e) => updateSubtitle({ fontSize: Number(e.target.value) })}/></label>
         <label className="grid gap-2 font-medium">字幕高度<input type="range" min="24" max="220" value={subtitle.verticalOffset} onChange={(e) => updateSubtitle({ verticalOffset: Number(e.target.value) })}/></label>
@@ -319,7 +354,7 @@ export function VideoSubtitleEnhancer() {
         <label className="grid gap-2 font-medium">字幕宽度：{subtitle.width}%<input type="range" min="40" max="96" value={subtitle.width} onChange={(e) => updateSubtitle({ width: Number(e.target.value) })}/></label>
         <div className="grid grid-cols-2 gap-3"><label className="flex items-center gap-2"><input type="checkbox" checked={subtitle.outline} onChange={(e) => updateSubtitle({ outline: e.target.checked })}/>文字描边</label><label className="flex items-center gap-2"><input type="checkbox" checked={subtitle.shadow} onChange={(e) => updateSubtitle({ shadow: e.target.checked })}/>文字阴影</label></div>
         <label className="grid gap-2 font-medium">识别模式<select className="surface-strong rounded-xl border line px-3 py-2.5" value={settings.model} onChange={(e) => setSettings((value) => ({ ...value, model: e.target.value as SubtitleSettings["model"] }))}><option value="auto">自动选择</option><option value="fast">流畅优先</option><option value="accurate">准确优先</option></select></label>
-        <label className="grid gap-2 font-medium">翻译来源<select className="surface-strong rounded-xl border line px-3 py-2.5" value={settings.sourceMode} onChange={(e) => setSettings((value) => ({ ...value, sourceMode: e.target.value as SubtitleSettings["sourceMode"] }))}><option value="auto">自动：字幕轨 → 音频识别 → OCR备用</option><option value="captions">仅翻译视频字幕轨</option><option value="audio">按播放音频识别</option><option value="ocr">OCR备用：识别画面文字</option></select></label>
+        <label className="grid gap-2 font-medium">字幕来源<select className="surface-strong rounded-xl border line px-3 py-2.5" value={settings.sourceMode} onChange={(e) => setSettings((value) => ({ ...value, sourceMode: e.target.value as SubtitleSettings["sourceMode"] }))}><option value="audio">视频音频 ASR（推荐）</option><option value="captions">原视频字幕轨</option><option value="auto">自动：优先音频识别</option><option value="ocr">OCR备用：识别画面文字</option></select></label>
         <button className="focus-ring pressable rounded-xl border line px-4 py-2.5 font-medium" onClick={() => setSettings(defaultSubtitleSettings)}>恢复默认设置</button>
       </div>
     </aside>}
