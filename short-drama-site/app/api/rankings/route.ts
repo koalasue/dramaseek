@@ -4,7 +4,7 @@ import { searchDailymotion } from "@/lib/live-search/dailymotion";
 import { searchWithFirecrawl } from "@/lib/live-search/firecrawl";
 import { discoverOfficialPlatformPages, searchOfficialPagesWithSerpApi } from "@/lib/live-search/serpapi";
 import { discoverYouTubeShortDramas, searchYouTube } from "@/lib/live-search/youtube";
-import { dedupeRankingResources, enrichRankingResource, isEligibleRankingResource } from "@/lib/rankings/quality";
+import { dedupeRankingResources, enrichRankingResource, isEligibleRankingResource, isRejectedRankingContent } from "@/lib/rankings/quality";
 import { buildDramaMetadata } from "@/lib/rankings/metadata";
 import { buildDramaTrend } from "@/lib/rankings/trends";
 import { normalizePlayback } from "@/lib/playback";
@@ -30,6 +30,7 @@ type RankingsPayload = {
     minimumConfidence: number;
     blockedReason: string;
   };
+  sourceDiagnostics: ReturnType<typeof buildSourceDiagnostics>;
   sampleJson: ReturnType<typeof toGlobalRankingEntry>[];
   updatedAt: string;
   firecrawlEnabled: boolean;
@@ -202,6 +203,35 @@ function buildTikTokTrendAnalysis() {
   };
 }
 
+function rejectedReason(resource: LiveSearchResource) {
+  const evidence = `${resource.title} ${resource.description ?? ""} ${resource.uploader} ${resource.url}`;
+  if (isRejectedRankingContent(evidence)) return "rejected_content";
+  if (!resource.title) return "missing_title";
+  if (!resource.thumbnailUrl) return "missing_cover";
+  if (!resource.official_source && !(resource.platformId === "dailymotion" && resource.discoverySource === "official_api")) return "unverified_source";
+  if ((resource.confidence_score ?? 0) < 50) return "low_confidence";
+  return "quality_gate";
+}
+
+function countBy<T extends string>(values: T[]) {
+  return values.reduce<Record<string, number>>((acc, value) => {
+    acc[value] = (acc[value] ?? 0) + 1;
+    return acc;
+  }, {});
+}
+
+function buildSourceDiagnostics(enriched: LiveSearchResource[], eligible: LiveSearchResource[], rejected: LiveSearchResource[]) {
+  return {
+    totalDiscovered: enriched.length,
+    eligible: eligible.length,
+    rejected: rejected.length,
+    byPlatform: countBy(enriched.map((resource) => resource.platformId)),
+    eligibleByPlatform: countBy(eligible.map((resource) => resource.platformId)),
+    byDiscoverySource: countBy(enriched.map((resource) => resource.discoverySource ?? resource.source_type ?? "unknown")),
+    rejectedReasons: countBy(rejected.map(rejectedReason)),
+  };
+}
+
 async function buildRankingsPayload(): Promise<RankingsPayload> {
   const platforms = await listPlatforms();
   const [seedResources, broadResources] = await Promise.all([discoverSeedResources(), discoverBroadResources()]);
@@ -232,9 +262,10 @@ async function buildRankingsPayload(): Promise<RankingsPayload> {
     quality: {
       eligible: eligible.length,
       rejected: rejected.length,
-      minimumConfidence: 70,
-      blockedReason: "普通搜索结果、SEO页面、非官方频道、解说/剪辑/预告、无封面或低可信内容不会进入 Global Short Drama Ranking。",
+      minimumConfidence: 50,
+      blockedReason: "普通 SEO 页面、解说/剪辑/预告、无封面或低可信内容不会进入榜单；Dailymotion 公开 API 的可播放条目会作为实时资源展示。",
     },
+    sourceDiagnostics: buildSourceDiagnostics(enriched, eligible, rejected),
     sampleJson: globalTrending.slice(0, 12),
     updatedAt: new Date().toISOString(),
     firecrawlEnabled: Boolean(process.env.FIRECRAWL_API_KEY),

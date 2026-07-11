@@ -5,6 +5,7 @@ const video = { id: "x1", title: "The Lion's Captive - FULL | Reelshort", descri
 
 describe("Dailymotion live short-drama search", () => {
   it("preserves the original English title match", () => { expect(matchesExactDramaTitle(video.title, "The Lion's Captive")).toBe(true); });
+  it("keeps real public API results when the title includes platform SEO words", () => { expect(matchesExactDramaTitle("Fated Alpha Full Movie | Short Drama", "Fated Alpha")).toBe(true); });
   it("accepts a full drama and maps its real video URL", () => { const result = filterDailymotionVideos([video], "The Lion's Captive"); expect(result[0]).toMatchObject({ title: video.title, url: video.url, contentType: "full_series" }); });
   it("does not mix a sequel into the original title", () => { expect(filterDailymotionVideos([{ ...video, title: "The Lion's Captive 2" }], "The Lion's Captive")).toHaveLength(0); });
   it("removes explanation and trailer content", () => { expect(filterDailymotionVideos([{ ...video, title: "The Lion's Captive Review" }, { ...video, id: "x2", title: "The Lion's Captive Trailer" }], "The Lion's Captive")).toHaveLength(0); });

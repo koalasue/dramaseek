@@ -1,4 +1,5 @@
-import { normalizeText } from "@/lib/search";
+import { cleanDramaTitle } from "@/lib/rankings/metadata";
+import { normalizeText, similarity } from "@/lib/search";
 import type { LiveSearchResource } from "@/lib/types";
 
 type DailymotionVideo = {
@@ -21,8 +22,14 @@ const rejected = /\b(review|recap|explained|explanation|reaction|trailer|teaser|
 const allowedSuffix = /(?:full(?:\s*(?:ep|episode|episodes|movie|series))?|complete(?:\s*series)?|all\s*episodes?|全集|完整版|全剧|\|\s*(?:reelshort|dramabox|netshort))*/gi;
 
 export function matchesExactDramaTitle(videoTitle: string, query: string) {
-  const cleaned = videoTitle.replace(allowedSuffix, "").replace(/[\s\-:|_[\]()]+/g, "");
-  return normalizeText(cleaned) === normalizeText(query);
+  const title = normalizeText(cleanDramaTitle(videoTitle.replace(allowedSuffix, "")));
+  const needle = normalizeText(cleanDramaTitle(query));
+  if (!title || !needle) return false;
+  if (title === needle) return true;
+  if (title.startsWith(needle) && /^(?:2|3|4|5|ii|iii|iv|season)/i.test(title.slice(needle.length))) return false;
+  if (title.includes(`${needle}full`) || title.includes(`${needle}complete`)) return true;
+  if (title.includes(needle)) return true;
+  return similarity(title, needle) >= 0.58;
 }
 
 export function filterDailymotionVideos(videos: DailymotionVideo[], query: string): LiveSearchResource[] {

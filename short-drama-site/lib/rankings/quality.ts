@@ -118,12 +118,13 @@ export function enrichRankingResource(resource: LiveSearchResource, index = 0): 
 
 export function isEligibleRankingResource(resource: LiveSearchResource) {
   const evidence = `${resource.title} ${resource.description ?? ""} ${resource.uploader} ${resource.url}`;
+  const trustedPublicPlayable = isTrustedPublicPlayable(resource);
   if (isRejectedRankingContent(evidence)) return false;
   if (!resource.title || !resource.thumbnailUrl) return false;
-  if (!resource.official_source && !isTrustedPublicPlayable(resource)) return false;
-  if (!resource.episodeCount && !isTrustedOfficialPlatformResource(resource)) return false;
-  if ((resource.confidence_score ?? 0) < 70) return false;
-  return resource.contentType === "full_series" || Boolean(resource.episodeCount);
+  if (!resource.official_source && !trustedPublicPlayable) return false;
+  if (!resource.episodeCount && !isTrustedOfficialPlatformResource(resource) && !trustedPublicPlayable) return false;
+  if ((resource.confidence_score ?? 0) < (trustedPublicPlayable ? 50 : 70)) return false;
+  return resource.contentType === "full_series" || resource.contentType === "episode" || Boolean(resource.episodeCount);
 }
 
 export function dedupeRankingResources(resources: LiveSearchResource[]) {

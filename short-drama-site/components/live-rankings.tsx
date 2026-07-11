@@ -21,6 +21,7 @@ type GlobalEntry = {
   views?: number;
   likes?: number;
   source_url?: string;
+  href?: string;
 };
 
 type PanelEntry = {
@@ -34,17 +35,36 @@ type PanelEntry = {
   platform?: string;
   platformId?: string;
   genre?: string[];
+  href?: string;
 };
 
 type Panel = { id: string; name: string; entries: PanelEntry[] };
-type RankingResponse = { globalTrending?: GlobalEntry[]; panels?: Panel[]; updatedAt?: string };
+type RankingResponse = {
+  globalTrending?: GlobalEntry[];
+  panels?: Panel[];
+  updatedAt?: string;
+  firecrawlEnabled?: boolean;
+  serpApiEnabled?: boolean;
+  youtubeApiEnabled?: boolean;
+  quality?: { eligible: number; rejected: number; blockedReason?: string };
+  sourceDiagnostics?: {
+    totalDiscovered: number;
+    eligible: number;
+    rejected: number;
+    byPlatform: Record<string, number>;
+    eligibleByPlatform: Record<string, number>;
+    byDiscoverySource: Record<string, number>;
+    rejectedReasons: Record<string, number>;
+  };
+};
 
 type DramaRankingItem = {
   key: string;
   platformId: string;
   platformName: string;
   rank: number;
-  drama: Drama;
+  drama?: Drama;
+  href: string;
   title: string;
   cover: string;
   description: string;
@@ -54,6 +74,7 @@ type DramaRankingItem = {
   likes?: number;
   hotScore: number;
   sourceUrl?: string;
+  dataLabel: string;
 };
 
 const compact = new Intl.NumberFormat("zh-CN", { notation: "compact", maximumFractionDigits: 1 });
@@ -79,59 +100,98 @@ function fallbackItems(dramas: Drama[], platformId: string, platformName: string
         platformName,
         rank: index + 1,
         drama,
+        href: `/drama/${drama.slug}#resource-search`,
         title: entity.canonical_title,
         cover: entity.cover,
         description: entity.description,
         genre: entity.genre,
         episodes: entity.episodes,
         hotScore: drama.trendingScore,
+        dataLabel: "本地剧库",
       };
     });
 }
 
+function rankingDetailHref(entry: {
+  title: string;
+  platformId: string;
+  cover?: string;
+  description?: string;
+  genre?: string[];
+  episodes?: number;
+  hot_score?: number;
+  source_url?: string;
+}) {
+  const params = new URLSearchParams({
+    title: entry.title,
+    platform: entry.platformId,
+    cover: entry.cover ?? "",
+    description: entry.description ?? "",
+    genre: (entry.genre ?? []).join(","),
+    episodes: String(entry.episodes ?? ""),
+    hot: String(entry.hot_score ?? 0),
+    trend: "STABLE",
+    source: entry.source_url ?? "",
+  });
+  return `/rankings/drama?${params.toString()}`;
+}
+
 function fromGlobalEntries(dramas: Drama[], entries: GlobalEntry[] | undefined): DramaRankingItem[] {
-  return (entries ?? []).flatMap((entry) => {
+  return (entries ?? []).map((entry) => {
     const drama = matchDramaEntity(dramas, entry.clean_title ?? entry.title);
-    if (!drama) return [];
-    const entity = toDramaEntity(drama);
-    return [{
-      key: `${entry.platformId}:${entry.rank}:${drama.id}`,
+    const entity = drama ? toDramaEntity(drama) : null;
+    const title = entity?.canonical_title ?? entry.clean_title ?? entry.title;
+    return {
+      key: `${entry.platformId}:${entry.rank}:${drama?.id ?? title}`,
       platformId: entry.platformId,
       platformName: entry.platform,
       rank: entry.rank,
-      drama,
-      title: entity.canonical_title,
-      cover: entry.cover || entity.cover,
-      description: entry.description || entity.description,
-      genre: entry.genre?.length ? entry.genre : entity.genre,
-      episodes: entry.episodes ?? entity.episodes,
+      drama: drama ?? undefined,
+      href: drama ? `/drama/${drama.slug}#resource-search` : entry.href ?? rankingDetailHref({ ...entry, title }),
+      title,
+      cover: entry.cover || entity?.cover || "",
+      description: entry.description || entity?.description || "来自实时公开资源，点击后可继续搜索播放入口。",
+      genre: entry.genre?.length ? entry.genre : entity?.genre ?? [],
+      episodes: entry.episodes ?? entity?.episodes,
       views: entry.views,
       likes: entry.likes,
-      hotScore: entry.hot_score || drama.trendingScore,
+      hotScore: entry.hot_score || drama?.trendingScore || 0,
       sourceUrl: entry.source_url,
-    }];
+      dataLabel: drama ? "已合并剧库" : "实时资源",
+    };
   });
 }
 
 function fromPanels(dramas: Drama[], panels: Panel[] | undefined): DramaRankingItem[] {
-  return (panels ?? []).flatMap((panel) => panel.entries.flatMap((entry, index) => {
+  return (panels ?? []).flatMap((panel) => panel.entries.map((entry, index) => {
     const drama = matchDramaEntity(dramas, entry.title);
-    if (!drama) return [];
-    const entity = toDramaEntity(drama);
-    return [{
-      key: `${panel.id}:${entry.id}:${drama.id}`,
-      platformId: entry.platformId ?? panel.id,
-      platformName: entry.platform ?? panel.name.replace(/\s+TOP.*/i, ""),
+    const entity = drama ? toDramaEntity(drama) : null;
+    const platformId = entry.platformId ?? panel.id;
+    const platformName = entry.platform ?? panel.name.replace(/\s+TOP.*/i, "");
+    return {
+      key: `${panel.id}:${entry.id}:${drama?.id ?? entry.title}`,
+      platformId,
+      platformName,
       rank: index + 1,
-      drama,
-      title: entity.canonical_title,
-      cover: entry.posterUrl || entity.cover,
-      description: entry.synopsis || entity.description,
-      genre: entry.genre?.length ? entry.genre : entity.genre,
-      episodes: entry.episodeCount ?? entity.episodes,
+      drama: drama ?? undefined,
+      href: drama ? `/drama/${drama.slug}#resource-search` : entry.href ?? rankingDetailHref({
+        title: entry.title,
+        platformId,
+        cover: entry.posterUrl,
+        description: entry.synopsis,
+        genre: entry.genre,
+        episodes: entry.episodeCount,
+        hot_score: entry.hot_score,
+      }),
+      title: entity?.canonical_title ?? entry.title,
+      cover: entry.posterUrl || entity?.cover || "",
+      description: entry.synopsis || entity?.description || "来自实时公开资源，点击后可继续搜索播放入口。",
+      genre: entry.genre?.length ? entry.genre : entity?.genre ?? [],
+      episodes: entry.episodeCount ?? entity?.episodes,
       views: entry.views,
-      hotScore: entry.hot_score ?? drama.trendingScore,
-    }];
+      hotScore: entry.hot_score ?? drama?.trendingScore ?? 0,
+      dataLabel: drama ? "已合并剧库" : "实时资源",
+    };
   }));
 }
 
@@ -165,8 +225,9 @@ export function LiveRankings({ dramas }: { dramas: Drama[] }) {
       const matched = apiItems
         .filter((item) => item.platformId === platformId)
         .filter((item) => {
-          if (seen.has(item.drama.id)) return false;
-          seen.add(item.drama.id);
+          const key = item.drama?.id ?? item.title.toLowerCase();
+          if (seen.has(key)) return false;
+          seen.add(key);
           return true;
         })
         .sort((a, b) => b.hotScore - a.hotScore)
@@ -202,6 +263,12 @@ export function LiveRankings({ dramas }: { dramas: Drama[] }) {
           {[["all", "All"], ...platformOrder].map(([id, label]) => <button key={id} onClick={() => setActivePlatform(id)} className={`focus-ring pressable min-h-10 shrink-0 rounded-lg border px-3 text-xs font-semibold ${activePlatform === id ? "accent-bg border-transparent" : "surface line"}`}>{label}</button>)}
         </div>
       </div>
+      <div className="mt-3 grid gap-2 text-xs text-muted sm:grid-cols-4">
+        <div className="surface-strong rounded-lg border line px-3 py-2"><strong className="block text-sm text-[color:var(--foreground)]">{data.sourceDiagnostics?.totalDiscovered ?? 0}</strong>实时发现</div>
+        <div className="surface-strong rounded-lg border line px-3 py-2"><strong className="block text-sm text-[color:var(--foreground)]">{data.quality?.eligible ?? 0}</strong>进入榜单</div>
+        <div className="surface-strong rounded-lg border line px-3 py-2"><strong className="block text-sm text-[color:var(--foreground)]">{data.quality?.rejected ?? 0}</strong>过滤低质</div>
+        <div className="surface-strong rounded-lg border line px-3 py-2"><strong className="block text-sm text-[color:var(--foreground)]">{data.youtubeApiEnabled || data.serpApiEnabled || data.firecrawlEnabled ? "已配置" : "仅公开源"}</strong>外部数据源</div>
+      </div>
     </section>
 
     <div className="mt-4 grid gap-4 lg:grid-cols-2">
@@ -215,10 +282,10 @@ export function LiveRankings({ dramas }: { dramas: Drama[] }) {
         </div>
         <ol className="divide-y line">
           {group.entries.map((item) => <li key={item.key}>
-            <Link href={`/drama/${item.drama.slug}#resource-search`} className="focus-ring group grid grid-cols-[34px_76px_minmax(0,1fr)] gap-3 p-3 hover:bg-[color:var(--surface-strong)] sm:grid-cols-[40px_88px_minmax(0,1fr)_auto] sm:items-center">
+            <Link href={item.href} className="focus-ring group grid grid-cols-[34px_76px_minmax(0,1fr)] gap-3 p-3 hover:bg-[color:var(--surface-strong)] sm:grid-cols-[40px_88px_minmax(0,1fr)_auto] sm:items-center">
               <span className={`grid size-8 place-items-center rounded-lg text-xs font-bold tabular-nums ${item.rank <= 3 ? "accent-bg" : "surface-strong"}`}>{item.rank}</span>
               <span className="relative h-28 overflow-hidden rounded-lg bg-[color:var(--surface-strong)] sm:h-32">
-                <Image src={item.cover} alt={`${item.title} cover`} fill sizes="88px" className="object-cover transition-transform group-hover:scale-[1.03]"/>
+                {item.cover ? <Image src={item.cover} alt={`${item.title} cover`} fill sizes="88px" className="object-cover transition-transform group-hover:scale-[1.03]"/> : <span className="grid h-full place-items-center px-2 text-center text-[11px] text-muted">No cover</span>}
               </span>
               <span className="min-w-0">
                 <strong className="line-clamp-2 text-sm leading-5 sm:text-base">{item.title}</strong>
@@ -231,6 +298,7 @@ export function LiveRankings({ dramas }: { dramas: Drama[] }) {
                   {item.views ? <span className="inline-flex items-center gap-1"><Eye size={12}/>{compact.format(item.views)}</span> : null}
                   {item.likes ? <span>{compact.format(item.likes)} likes</span> : null}
                   <span className="inline-flex items-center gap-1"><Fire size={12} weight="fill"/>热度 {item.hotScore}</span>
+                  <span>{item.dataLabel}</span>
                 </span>
               </span>
               <span className="col-span-3 inline-flex min-h-10 items-center justify-center gap-1.5 rounded-lg border line px-3 text-xs font-semibold sm:col-span-1">
