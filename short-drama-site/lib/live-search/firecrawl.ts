@@ -24,7 +24,7 @@ const supportedPlatforms = [
   { id: "flextv", name: "FlexTV", domains: ["flextv.cc", "www.flextv.cc", "flextv.co", "www.flextv.co"] },
 ] as const;
 
-const rejectedContent = /\b(review|recap|explained|explanation|reaction|trailer|teaser|commentary|preview|clip|watch\s+free|full\s+movie|movie|episode\s+only|youtube\s+compilation)\b|解说|讲解|盘点|吐槽|影评|预告|花絮|混剪|二创/i;
+const rejectedContent = /\b(review|recap|explained|explanation|reaction|trailer|teaser|commentary|preview|clip|episode\s+only|youtube\s+compilation)\b|解说|讲解|盘点|吐槽|影评|预告|花絮|混剪|二创/i;
 const genericPages = /\/(?:search|privacy|terms|about|contact|download)(?:\/|$)/i;
 
 function platformForUrl(rawUrl: string) {
@@ -109,6 +109,39 @@ export async function searchWithFirecrawl(query: string): Promise<LiveSearchReso
 
   if (!response.ok) throw new Error(`Firecrawl search failed: ${response.status}`);
   return filterFirecrawlResults(getSearchItems(await response.json() as FirecrawlPayload), query);
+}
+
+export async function discoverWithFirecrawl(): Promise<LiveSearchResource[]> {
+  const apiKey = process.env.FIRECRAWL_API_KEY;
+  if (!apiKey) return [];
+
+  const queries = [
+    "site:reelshort.com short drama trending full episodes -review -recap -trailer",
+    "site:dramabox.com short drama popular full episodes -review -recap -trailer",
+    "site:netshort.com short drama popular watch -review -recap -trailer",
+    "(site:shortmax.app OR site:shortmax.tv) short drama popular watch -review -recap -trailer",
+    "site:goodshort.com short drama popular watch -review -recap -trailer",
+    "(site:flextv.cc OR site:flextv.co) short drama popular watch -review -recap -trailer",
+  ];
+
+  const settled = await Promise.allSettled(queries.map(async (query) => {
+    const response = await fetch(`${process.env.FIRECRAWL_API_URL ?? "https://api.firecrawl.dev"}/v2/search`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ query, limit: 10 }),
+      signal: AbortSignal.timeout(25000),
+    });
+    if (!response.ok) throw new Error(`Firecrawl discovery failed: ${response.status}`);
+    return filterFirecrawlResults(getSearchItems(await response.json() as FirecrawlPayload), "", { broad: true });
+  }));
+
+  const seen = new Set<string>();
+  return settled.flatMap((item) => item.status === "fulfilled" ? item.value : []).filter((resource) => {
+    const key = `${resource.platformId}:${resource.url}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 export const firecrawlPlatformIds = supportedPlatforms.map((platform) => platform.id);

@@ -9,7 +9,11 @@ export const platforms: Platform[] = [
   { id: "shortmax", slug: "shortmax", name: "ShortMax", domain: "shortmax.app", color: "#d94f45", offlineNote: "请以 ShortMax 官方应用当前提供的离线能力为准。" },
   { id: "goodshort", slug: "goodshort", name: "GoodShort", domain: "goodshort.com", color: "#c8433a", offlineNote: "请以 GoodShort 官方应用当前提供的离线能力为准。" },
   { id: "flextv", slug: "flextv", name: "FlexTV", domain: "flextv.cc", color: "#b93831", offlineNote: "请以 FlexTV 官方应用当前提供的离线能力为准。" }
-  ,{ id: "tiktok", slug: "tiktok", name: "TikTok", domain: "tiktok.com", color: "#c8433a", offlineNote: "仅展示 TikTok 官方应用当前允许的保存或离线观看选项。" }
+  ,{ id: "shortdrama", slug: "shortdrama", name: "ShortDrama.st", domain: "shortdrama.st", color: "#d94f45", offlineNote: "免费聚合资源站，DramaSeek 只记录公开观看入口，不托管视频。" },
+  { id: "jowo", slug: "jowo", name: "JOWO TV", domain: "free.jowo.tv", color: "#c8433a", offlineNote: "免费聚合资源站，DramaSeek 只记录公开观看入口，不托管视频。" },
+  { id: "minishort", slug: "minishort", name: "MiniShort", domain: "minishort.com", color: "#b93831", offlineNote: "免费聚合资源站，DramaSeek 只记录公开观看入口，不托管视频。" },
+  { id: "dramaflows", slug: "dramaflows", name: "DramaFlows", domain: "dramaflows.com", color: "#d94f45", offlineNote: "免费聚合资源站，DramaSeek 只记录公开观看入口，不托管视频。" },
+  { id: "tiktok", slug: "tiktok", name: "TikTok", domain: "tiktok.com", color: "#c8433a", offlineNote: "仅展示 TikTok 官方应用当前允许的保存或离线观看选项。" }
 ];
 
 const checkedAt = "2026-07-07T08:00:00.000Z";

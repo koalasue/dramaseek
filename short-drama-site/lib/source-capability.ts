@@ -12,7 +12,7 @@ export interface SourceCapability {
   reason: string;
 }
 
-const externalOnlyPlatforms = new Set(["dailymotion", "reelshort", "dramabox", "netshort", "shortmax", "goodshort", "flextv", "tiktok"]);
+const externalOnlyPlatforms = new Set(["dailymotion", "reelshort", "dramabox", "netshort", "shortmax", "goodshort", "flextv", "shortdrama", "jowo", "minishort", "dramaflows", "tiktok"]);
 const realtimeAiSubtitleEnabled = process.env.NEXT_PUBLIC_ENABLE_REALTIME_AI_SUBTITLE === "true";
 
 export function detectSourceCapability(input: { platformId: string; playType: PlayType; status: PlaybackStatus; url: string }): SourceCapability {

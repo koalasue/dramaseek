@@ -175,8 +175,8 @@ export interface LiveSearchResource {
   quality_score?: number;
   video_id?: string;
   verifiedOfficial: boolean;
-  discoverySource?: "official_api" | "firecrawl" | "serpapi" | "manual" | "social";
-  source_type?: "official_platform" | "official_channel" | "third_party_database" | "social_trend" | "search_discovery";
+  discoverySource?: "official_api" | "firecrawl" | "serpapi" | "agent_reach" | "manual" | "social" | "public_aggregator";
+  source_type?: "official_platform" | "official_channel" | "public_aggregator" | "third_party_database" | "social_trend" | "search_discovery";
   official_source?: boolean;
   source_url?: string;
   confidence_score?: number;

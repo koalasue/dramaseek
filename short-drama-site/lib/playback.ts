@@ -4,7 +4,7 @@ import { detectSourceCapability } from "@/lib/source-capability";
 type PlaybackTarget = Pick<Resource, "url" | "platformId" | "status" | "playType" | "playbackStatus" | "qualityScore"> | Pick<LiveSearchResource, "url" | "platformId" | "play_type" | "status" | "quality_score">;
 
 const embedPlatforms = new Set(["youtube", "dailymotion"]);
-const externalPlatforms = new Set(["reelshort", "dramabox", "netshort", "shortmax", "goodshort", "flextv", "tiktok"]);
+const externalPlatforms = new Set(["reelshort", "dramabox", "netshort", "shortmax", "goodshort", "flextv", "shortdrama", "jowo", "minishort", "dramaflows", "tiktok"]);
 const cloudPlatforms = new Set(["baidu", "quark"]);
 const cloudDomains: Record<string, string[]> = {
   baidu: ["pan.baidu.com", "yun.baidu.com"],
@@ -123,11 +123,11 @@ export function aiSubtitleCompatibility(platformId: string, playType: PlayType, 
   };
 }
 
-export function watchModeLabel(playType: PlayType, status: PlaybackStatus) {
+export function watchModeLabel(playType: PlayType, status: PlaybackStatus, platformId = "") {
   if (status === "login_required") return "官方观看 · 需要登录";
   if (playType === "direct" || playType === "embed") return "在线播放";
   if (playType === "cloud") return "云盘观看";
-  if (playType === "external") return "官方平台";
+  if (playType === "external") return ["shortdrama", "jowo", "minishort", "dramaflows"].includes(platformId) ? "免费聚合播放" : "官方平台";
   return "暂不可用";
 }
 
@@ -141,7 +141,7 @@ export function normalizePlayback(target: PlaybackTarget) {
     playType,
     status,
     label: playbackLabel(playType, status),
-    watchMode: watchModeLabel(playType, status),
+    watchMode: watchModeLabel(playType, status, target.platformId),
     videoId: videoIdFromUrl(target.url),
     qualityScore,
     aiSubtitle: aiSubtitleCompatibility(target.platformId, playType, status),

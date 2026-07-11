@@ -8,6 +8,7 @@
     "build:extension": "vite build --config extension/vite.config.ts",
     "start": "next start",
     "lint": "eslint .",
+    "qa": "node scripts/qa-check.mjs",
     "test": "vitest run",
     "test:watch": "vitest"
   },

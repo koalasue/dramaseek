@@ -3,12 +3,16 @@ import { calculateHeatScore } from "@/lib/rankings/trends";
 import type { LiveSearchResource } from "@/lib/types";
 
 export const officialDramaPlatforms = ["reelshort", "dramabox", "shortmax", "goodshort", "flextv", "netshort"] as const;
+export const publicAggregatorPlatforms = ["shortdrama", "jowo", "minishort", "dramaflows"] as const;
 
 export const officialYouTubeChannelPattern =
   /\b(reelshort|dramabox|shortmax|goodshort|flextv|netshort)\b/i;
 
 const rejectedContentPattern =
   /\b(trailer|review|recap|explanation|explained|clip|watch\s+free|free\s+drama|tv\s+shows?|tubi|full\s+movie|movies?|episode\s+only|youtube\s+compilation|reaction|commentary|preview|teaser|fanmade|edit)\b|解说|讲解|盘点|吐槽|影评|预告|花絮|混剪|二创/i;
+
+const rejectedOfficialPlatformPattern =
+  /\b(trailer|review|recap|explanation|explained|clip|episode\s+only|youtube\s+compilation|reaction|commentary|preview|teaser|fanmade|edit)\b|解说|讲解|盘点|吐槽|影评|预告|花絮|混剪|二创/i;
 
 const genreRules: Array<[string, RegExp]> = [
   ["Romance", /\b(romance|love|bride|wife|husband|marriage|married|divorce|wedding)\b/i],
@@ -27,6 +31,10 @@ function clampScore(value: number) {
 
 export function isRejectedRankingContent(value: string) {
   return rejectedContentPattern.test(value);
+}
+
+export function isRejectedOfficialPlatformContent(value: string) {
+  return rejectedOfficialPlatformPattern.test(value);
 }
 
 export function inferGenres(resource: Pick<LiveSearchResource, "title" | "description">) {
@@ -72,7 +80,14 @@ function isTrustedPublicPlayable(resource: LiveSearchResource) {
 }
 
 function isTrustedOfficialPlatformResource(resource: LiveSearchResource) {
-  return officialDramaPlatforms.includes(resource.platformId as typeof officialDramaPlatforms[number]) && Boolean(resource.official_source) && Boolean(resource.thumbnailUrl);
+  return officialDramaPlatforms.includes(resource.platformId as typeof officialDramaPlatforms[number]) && Boolean(resource.official_source) && Boolean(resource.url);
+}
+
+function isTrustedPublicAggregatorResource(resource: LiveSearchResource) {
+  return publicAggregatorPlatforms.includes(resource.platformId as typeof publicAggregatorPlatforms[number]) &&
+    resource.source_type === "public_aggregator" &&
+    resource.discoverySource === "public_aggregator" &&
+    Boolean(resource.title && resource.url);
 }
 
 export function enrichRankingResource(resource: LiveSearchResource, index = 0): LiveSearchResource {
@@ -80,6 +95,8 @@ export function enrichRankingResource(resource: LiveSearchResource, index = 0): 
   const sourceType = resource.source_type ??
     (officialDramaPlatforms.includes(resource.platformId as typeof officialDramaPlatforms[number])
       ? "official_platform"
+      : publicAggregatorPlatforms.includes(resource.platformId as typeof publicAggregatorPlatforms[number])
+        ? "public_aggregator"
       : resource.platformId === "youtube" && officialYouTubeChannelPattern.test(resource.uploader)
         ? "official_channel"
         : resource.platformId === "tiktok"
@@ -93,6 +110,7 @@ export function enrichRankingResource(resource: LiveSearchResource, index = 0): 
   const confidence =
     (officialSource ? 40 : 0) +
     (isTrustedPublicPlayable(resource) ? 30 : 0) +
+    (isTrustedPublicAggregatorResource({ ...resource, source_type: sourceType, discoverySource: resource.discoverySource ?? "public_aggregator" }) ? 35 : 0) +
     (officialDramaId ? 20 : 0) +
     (hasCompleteDetails({ ...resource, episodeCount }) ? 15 : 0) +
     (resource.thumbnailUrl ? 10 : 0) +
@@ -119,11 +137,14 @@ export function enrichRankingResource(resource: LiveSearchResource, index = 0): 
 export function isEligibleRankingResource(resource: LiveSearchResource) {
   const evidence = `${resource.title} ${resource.description ?? ""} ${resource.uploader} ${resource.url}`;
   const trustedPublicPlayable = isTrustedPublicPlayable(resource);
-  if (isRejectedRankingContent(evidence)) return false;
-  if (!resource.title || !resource.thumbnailUrl) return false;
-  if (!resource.official_source && !trustedPublicPlayable) return false;
-  if (!resource.episodeCount && !isTrustedOfficialPlatformResource(resource) && !trustedPublicPlayable) return false;
-  if ((resource.confidence_score ?? 0) < (trustedPublicPlayable ? 50 : 70)) return false;
+  const trustedOfficialPlatform = isTrustedOfficialPlatformResource(resource);
+  const trustedPublicAggregator = isTrustedPublicAggregatorResource(resource);
+  if (trustedOfficialPlatform ? isRejectedOfficialPlatformContent(evidence) : isRejectedRankingContent(evidence)) return false;
+  if (!resource.title || !resource.url) return false;
+  if (!resource.thumbnailUrl && !trustedOfficialPlatform && !trustedPublicAggregator) return false;
+  if (!resource.official_source && !trustedPublicPlayable && !trustedPublicAggregator) return false;
+  if (!resource.episodeCount && !trustedOfficialPlatform && !trustedPublicPlayable && !trustedPublicAggregator) return false;
+  if ((resource.confidence_score ?? 0) < (trustedPublicPlayable || trustedOfficialPlatform || trustedPublicAggregator ? 50 : 70)) return false;
   return resource.contentType === "full_series" || resource.contentType === "episode" || Boolean(resource.episodeCount);
 }
 

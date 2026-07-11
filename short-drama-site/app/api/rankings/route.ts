@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
 import { listDramas, listPlatforms } from "@/lib/repository";
-import { searchDailymotion } from "@/lib/live-search/dailymotion";
+import { agentReachEnabled, discoverWithAgentReach } from "@/lib/live-search/agent-reach";
+import { discoverAggregatorDramas } from "@/lib/live-search/aggregators";
+import { discoverDailymotionShortDramas, searchDailymotion } from "@/lib/live-search/dailymotion";
 import { searchWithFirecrawl } from "@/lib/live-search/firecrawl";
-import { discoverOfficialPlatformPages, searchOfficialPagesWithSerpApi } from "@/lib/live-search/serpapi";
+import { searchOfficialPagesWithSerpApi } from "@/lib/live-search/serpapi";
 import { discoverYouTubeShortDramas, searchYouTube } from "@/lib/live-search/youtube";
-import { dedupeRankingResources, enrichRankingResource, isEligibleRankingResource, isRejectedRankingContent } from "@/lib/rankings/quality";
+import { dedupeRankingResources, enrichRankingResource, isEligibleRankingResource, isRejectedOfficialPlatformContent, isRejectedRankingContent } from "@/lib/rankings/quality";
 import { buildDramaMetadata } from "@/lib/rankings/metadata";
 import { buildDramaTrend } from "@/lib/rankings/trends";
 import { normalizePlayback } from "@/lib/playback";
@@ -13,8 +15,7 @@ import type { LiveSearchResource, Platform } from "@/lib/types";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-const platformRankingOrder = ["dailymotion", "youtube", "reelshort", "dramabox", "netshort", "shortmax", "goodshort", "flextv", "tiktok"];
-const discoveryPlatforms = ["reelshort", "dramabox", "shortmax", "goodshort", "flextv", "netshort"] as const;
+const platformRankingOrder = ["shortdrama", "jowo", "minishort", "dramaflows", "dailymotion", "youtube", "reelshort", "dramabox", "netshort", "shortmax", "goodshort", "flextv", "tiktok"];
 const rankingsCacheTtlMs = 5 * 60 * 1000;
 
 type RankingsPayload = {
@@ -36,6 +37,7 @@ type RankingsPayload = {
   firecrawlEnabled: boolean;
   serpApiEnabled: boolean;
   youtubeApiEnabled: boolean;
+  agentReachEnabled: boolean;
 };
 
 let rankingsCache: { expiresAt: number; payload: RankingsPayload } | null = null;
@@ -78,7 +80,7 @@ function toRankingEntry(resource: LiveSearchResource, platforms: Platform[]) {
     creators: 0,
     posterUrl: resource.thumbnailUrl,
     href: `/rankings/drama?title=${encodeURIComponent(metadata.title)}&platform=${encodeURIComponent(resource.platformId)}&cover=${encodeURIComponent(resource.thumbnailUrl)}&description=${encodeURIComponent(metadata.description)}&genre=${encodeURIComponent(metadata.genre.join(","))}&episodes=${encodeURIComponent(String(metadata.episodes ?? ""))}&hot=${encodeURIComponent(String(resource.hot_score ?? 0))}&trend=${encodeURIComponent(resource.trend_direction ?? "STABLE")}&source=${encodeURIComponent(resource.source_url ?? resource.url)}`,
-    badge: resource.source_type === "official_channel" ? "官方频道" : "官方平台",
+    badge: resource.source_type === "public_aggregator" ? "免费聚合" : resource.source_type === "official_channel" ? "官方频道" : "官方平台",
     platform: platformName(platforms, resource.platformId),
     platformId: resource.platformId,
     genre: metadata.genre,
@@ -115,47 +117,28 @@ function toGlobalRankingEntry(resource: LiveSearchResource, platforms: Platform[
   };
 }
 
-function platformTrendFallback(platformId: string, hasFirecrawl: boolean, hasSerpApi: boolean, hasYouTube: boolean) {
-  const base: Record<string, { search: number; social: number; update: number; source: string }> = {
-    youtube: { search: hasYouTube ? 72 : 42, social: 68, update: 64, source: hasYouTube ? "YouTube API + official channel signals" : "Waiting for YouTube API key" },
-    reelshort: { search: hasSerpApi || hasFirecrawl ? 66 : 48, social: 76, update: 58, source: "Public pages + search trend + TikTok/YouTube discussion signal" },
-    dramabox: { search: hasSerpApi || hasFirecrawl ? 64 : 47, social: 72, update: 58, source: "Public pages + search trend + TikTok/YouTube discussion signal" },
-    shortmax: { search: hasSerpApi || hasFirecrawl ? 58 : 42, social: 61, update: 54, source: "Public pages + app-market trend proxy" },
-    goodshort: { search: hasSerpApi || hasFirecrawl ? 57 : 42, social: 58, update: 54, source: "Public pages + app-market trend proxy" },
-    flextv: { search: hasSerpApi || hasFirecrawl ? 55 : 40, social: 54, update: 52, source: "Public pages + app-market trend proxy" },
-    netshort: { search: hasSerpApi || hasFirecrawl ? 56 : 41, social: 55, update: 52, source: "Public pages + app-market trend proxy" },
-    dailymotion: { search: 60, social: 48, update: 60, source: "Dailymotion public API + embeddable video metadata" },
-    tiktok: { search: 54, social: 82, update: 72, source: "Hashtag trend observation, not raw video search ranking" },
-  };
-  const item = base[platformId] ?? { search: 40, social: 40, update: 50, source: "Public discovery signals" };
-  return { ...item, heat: Math.round(item.search * 0.25 + item.social * 0.2 + item.update * 0.15) };
-}
-
 function buildPlatformTrends(platforms: Platform[], eligible: LiveSearchResource[], enriched: LiveSearchResource[]) {
-  const hasFirecrawl = Boolean(process.env.FIRECRAWL_API_KEY);
-  const hasSerpApi = Boolean(process.env.SERPAPI_KEY);
-  const hasYouTube = Boolean(process.env.YOUTUBE_API_KEY);
   return platformRankingOrder.flatMap((platformId) => {
     const platform = platforms.find((item) => item.id === platformId);
     if (!platform) return [];
     const resources = eligible.filter((resource) => resource.platformId === platformId);
+    if (!resources.length) return [];
     const candidates = enriched.filter((resource) => resource.platformId === platformId);
-    const fallback = platformTrendFallback(platformId, hasFirecrawl, hasSerpApi, hasYouTube);
     const views = resources.reduce((sum, resource) => sum + (resource.viewCount ?? 0), 0);
-    const heat = resources.length ? Math.round(resources.reduce((sum, resource) => sum + (resource.hot_score ?? 0), 0) / resources.length) : fallback.heat;
+    const heat = Math.round(resources.reduce((sum, resource) => sum + (resource.hot_score ?? 0), 0) / resources.length);
     const sourceTypes = [...new Set(candidates.map((resource) => resource.discoverySource ?? resource.source_type).filter(Boolean))];
     return [{
       id: platform.id,
       name: platform.name,
-      status: resources.length ? "Trending Data" : "Trend Signals",
-      data_source: sourceTypes.length ? sourceTypes.join(" + ") : fallback.source,
+      status: "Trending Data",
+      data_source: sourceTypes.join(" + "),
       last_updated: new Date().toISOString(),
       heat_score: Math.max(0, Math.min(100, heat)),
       views,
-      search_score: resources.length ? Math.round(resources.reduce((sum, resource) => sum + buildDramaTrend(resource).search_score, 0) / resources.length) : fallback.search,
-      social_score: resources.length ? Math.round(resources.reduce((sum, resource) => sum + buildDramaTrend(resource).social_score, 0) / resources.length) : fallback.social,
+      search_score: Math.round(resources.reduce((sum, resource) => sum + buildDramaTrend(resource).search_score, 0) / resources.length),
+      social_score: Math.round(resources.reduce((sum, resource) => sum + buildDramaTrend(resource).social_score, 0) / resources.length),
       trend_direction: resources.some((resource) => resource.trend_direction === "UP") || platformId === "tiktok" ? "UP" : "STABLE",
-      ranking_signal: resources.length ? `${resources.length} verified drama signals` : "No verified drama item yet; showing platform-level trend signal",
+      ranking_signal: `${resources.length} verified drama signals`,
       entries: resources.slice(0, 10).map((resource) => toRankingEntry(resource, platforms)),
     }];
   });
@@ -184,8 +167,10 @@ async function discoverSeedResources() {
 
 async function discoverBroadResources() {
   const settled = await Promise.allSettled([
+    discoverDailymotionShortDramas(),
+    discoverAggregatorDramas(),
+    discoverWithAgentReach(),
     discoverYouTubeShortDramas(),
-    ...discoveryPlatforms.map((platformId) => discoverOfficialPlatformPages(platformId)),
   ]);
   return settled.flatMap((item) => item.status === "fulfilled" ? item.value : []);
 }
@@ -193,22 +178,17 @@ async function discoverBroadResources() {
 function buildTikTokTrendAnalysis() {
   return {
     title: "TikTok Trend Analysis",
-    note: "TikTok 不把普通视频搜索结果直接当成剧目榜；这里只展示 hashtag 热度、趋势变化和排名信号。",
-    keywords: [
-      { tag: "#shortdrama", views: 100, trend_change: "UP", ranking_signal: 92, status: "core trend" },
-      { tag: "#reelshort", views: 78, trend_change: "UP", ranking_signal: 84, status: "platform trend" },
-      { tag: "#dramabox", views: 72, trend_change: "STABLE", ranking_signal: 79, status: "platform trend" },
-      { tag: "#ceodrama", views: 65, trend_change: "UP", ranking_signal: 76, status: "genre trend" },
-    ],
+    note: "TikTok 暂未接入可验证剧目榜数据；不会生成模拟 hashtag 热度。",
+    keywords: [],
   };
 }
 
 function rejectedReason(resource: LiveSearchResource) {
   const evidence = `${resource.title} ${resource.description ?? ""} ${resource.uploader} ${resource.url}`;
-  if (isRejectedRankingContent(evidence)) return "rejected_content";
+  if (resource.official_source ? isRejectedOfficialPlatformContent(evidence) : isRejectedRankingContent(evidence)) return "rejected_content";
   if (!resource.title) return "missing_title";
-  if (!resource.thumbnailUrl) return "missing_cover";
-  if (!resource.official_source && !(resource.platformId === "dailymotion" && resource.discoverySource === "official_api")) return "unverified_source";
+  if (!resource.thumbnailUrl && !resource.official_source && resource.source_type !== "public_aggregator") return "missing_cover";
+  if (!resource.official_source && resource.source_type !== "public_aggregator" && !(resource.platformId === "dailymotion" && resource.discoverySource === "official_api")) return "unverified_source";
   if ((resource.confidence_score ?? 0) < 50) return "low_confidence";
   return "quality_gate";
 }
@@ -263,7 +243,7 @@ async function buildRankingsPayload(): Promise<RankingsPayload> {
       eligible: eligible.length,
       rejected: rejected.length,
       minimumConfidence: 50,
-      blockedReason: "普通 SEO 页面、解说/剪辑/预告、无封面或低可信内容不会进入榜单；Dailymotion 公开 API 的可播放条目会作为实时资源展示。",
+      blockedReason: "普通 SEO 页面、解说/剪辑/预告、文章页或低可信内容不会进入榜单；免费聚合站只展示公开可访问的真实剧集入口。",
     },
     sourceDiagnostics: buildSourceDiagnostics(enriched, eligible, rejected),
     sampleJson: globalTrending.slice(0, 12),
@@ -271,6 +251,7 @@ async function buildRankingsPayload(): Promise<RankingsPayload> {
     firecrawlEnabled: Boolean(process.env.FIRECRAWL_API_KEY),
     serpApiEnabled: Boolean(process.env.SERPAPI_KEY),
     youtubeApiEnabled: Boolean(process.env.YOUTUBE_API_KEY),
+    agentReachEnabled: agentReachEnabled(),
   };
 }
 

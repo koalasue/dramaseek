@@ -60,6 +60,7 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
             </span>
           </Link>;
         })}
+        {!trending.length && <div className="surface col-span-full rounded-xl border line p-5 text-sm text-muted">暂无真实短剧数据库记录。请先通过搜索实时资源，或配置 Supabase 数据库后同步真实短剧实体。</div>}
       </div>
     </section>
 
@@ -74,6 +75,7 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
             {entries.map((drama, index) => <li key={drama.id}><Link href={`/drama/${drama.slug}`} className="focus-ring flex min-h-11 items-center gap-2 rounded-lg px-2 hover:bg-[color:var(--surface-strong)]"><span className="grid size-7 place-items-center rounded-md bg-[color:var(--surface-strong)] text-xs font-bold">{index + 1}</span><span className="min-w-0 flex-1 truncate text-sm font-medium">{drama.titleEn || drama.titleZh}</span><ArrowRight size={14} className="text-muted"/></Link></li>)}
           </ol>
         </section>)}
+        {!platformPreview.length && <div className="surface col-span-full rounded-xl border line p-5 text-sm text-muted">暂无真实平台榜单缓存。本区域不会再使用演示数据；请进入排行榜页刷新公开 API 数据。</div>}
       </div>
     </section>
 

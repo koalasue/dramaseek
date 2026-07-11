@@ -14,7 +14,7 @@ import { matchDramaEntity } from "@/lib/drama-entity";
 
 const recentSearchesKey = "dramaseek:recent-searches";
 type RecentSearch = { keyword: string; time: string };
-const platformTabOrder = ["dailymotion", "youtube", "reelshort", "dramabox", "netshort", "shortmax", "goodshort", "flextv", "tiktok"];
+const platformTabOrder = ["shortdrama", "jowo", "minishort", "dramaflows", "dailymotion", "youtube", "reelshort", "dramabox", "netshort", "shortmax", "goodshort", "flextv", "tiktok"];
 
 export function SearchExperience({ dramas, platforms, initialQuery = "", initialPlatform = "all", embedded = false }: { dramas: Drama[]; platforms: Platform[]; initialQuery?: string; initialPlatform?: string; embedded?: boolean }) {
   const [query, setQuery] = useState(initialQuery);

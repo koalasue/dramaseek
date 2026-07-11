@@ -46,6 +46,7 @@ type RankingResponse = {
   firecrawlEnabled?: boolean;
   serpApiEnabled?: boolean;
   youtubeApiEnabled?: boolean;
+  agentReachEnabled?: boolean;
   quality?: { eligible: number; rejected: number; blockedReason?: string };
   sourceDiagnostics?: {
     totalDiscovered: number;
@@ -79,38 +80,19 @@ type DramaRankingItem = {
 
 const compact = new Intl.NumberFormat("zh-CN", { notation: "compact", maximumFractionDigits: 1 });
 const platformOrder = [
+  ["shortdrama", "ShortDrama.st"],
+  ["jowo", "JOWO TV"],
+  ["minishort", "MiniShort"],
+  ["dramaflows", "DramaFlows"],
   ["reelshort", "ReelShort TOP"],
   ["dramabox", "DramaBox TOP"],
+  ["netshort", "NetShort TOP"],
   ["shortmax", "ShortMax TOP"],
   ["goodshort", "GoodShort TOP"],
   ["flextv", "FlexTV TOP"],
   ["youtube", "YouTube Trending"],
   ["dailymotion", "Dailymotion Trending"],
 ] as const;
-
-function fallbackItems(dramas: Drama[], platformId: string, platformName: string): DramaRankingItem[] {
-  return [...dramas]
-    .sort((a, b) => b.trendingScore - a.trendingScore)
-    .slice(0, 8)
-    .map((drama, index) => {
-      const entity = toDramaEntity(drama);
-      return {
-        key: `${platformId}:fallback:${drama.id}`,
-        platformId,
-        platformName,
-        rank: index + 1,
-        drama,
-        href: `/drama/${drama.slug}#resource-search`,
-        title: entity.canonical_title,
-        cover: entity.cover,
-        description: entity.description,
-        genre: entity.genre,
-        episodes: entity.episodes,
-        hotScore: drama.trendingScore,
-        dataLabel: "本地剧库",
-      };
-    });
-}
 
 function rankingDetailHref(entry: {
   title: string;
@@ -233,7 +215,7 @@ export function LiveRankings({ dramas }: { dramas: Drama[] }) {
         .sort((a, b) => b.hotScore - a.hotScore)
         .slice(0, 10)
         .map((item, index) => ({ ...item, rank: index + 1, platformName }));
-      return { platformId, platformName, entries: matched.length ? matched : fallbackItems(dramas, platformId, platformName) };
+      return { platformId, platformName, entries: matched };
     });
   }, [data.globalTrending, data.panels, dramas]);
 
@@ -267,9 +249,15 @@ export function LiveRankings({ dramas }: { dramas: Drama[] }) {
         <div className="surface-strong rounded-lg border line px-3 py-2"><strong className="block text-sm text-[color:var(--foreground)]">{data.sourceDiagnostics?.totalDiscovered ?? 0}</strong>实时发现</div>
         <div className="surface-strong rounded-lg border line px-3 py-2"><strong className="block text-sm text-[color:var(--foreground)]">{data.quality?.eligible ?? 0}</strong>进入榜单</div>
         <div className="surface-strong rounded-lg border line px-3 py-2"><strong className="block text-sm text-[color:var(--foreground)]">{data.quality?.rejected ?? 0}</strong>过滤低质</div>
-        <div className="surface-strong rounded-lg border line px-3 py-2"><strong className="block text-sm text-[color:var(--foreground)]">{data.youtubeApiEnabled || data.serpApiEnabled || data.firecrawlEnabled ? "已配置" : "仅公开源"}</strong>外部数据源</div>
+        <div className="surface-strong rounded-lg border line px-3 py-2"><strong className="block text-sm text-[color:var(--foreground)]">{data.youtubeApiEnabled || data.serpApiEnabled || data.firecrawlEnabled || data.agentReachEnabled ? "已配置" : "仅公开源"}</strong>外部数据源</div>
       </div>
     </section>
+
+    {!visibleGroups.length && <section className="surface mt-4 rounded-xl border line p-6 text-center">
+      <h2 className="text-base font-semibold">暂无真实排行榜数据</h2>
+      <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-muted">当前没有通过公开 API 和质量筛选的短剧条目。页面不会再使用本地演示剧目补榜；请配置 Firecrawl / YouTube / SerpAPI，或在本机启用 Agent-Reach + yt-dlp 后重试。</p>
+      <button onClick={() => void load()} className="focus-ring pressable mt-4 inline-flex min-h-10 items-center gap-2 rounded-lg border line px-3 text-sm font-medium"><ArrowClockwise size={16}/>重新加载真实数据</button>
+    </section>}
 
     <div className="mt-4 grid gap-4 lg:grid-cols-2">
       {visibleGroups.map((group) => <section key={group.platformId} className="surface overflow-hidden rounded-xl border line">

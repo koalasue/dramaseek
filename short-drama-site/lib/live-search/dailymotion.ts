@@ -18,7 +18,9 @@ type DailymotionVideo = {
   comments_total?: number;
 };
 
-const rejected = /\b(review|recap|explained|explanation|reaction|trailer|teaser|commentary)\b|解说|讲解|影评|预告|花絮|混剪/i;
+const rejected = /\b(review|recap|explained|explanation|reaction|trailer|teaser|commentary|blockbuster|hindi\s+dubbed|south\s+indian|short\s+film|4k\s+-\s+high\s+quality)\b|解说|讲解|影评|预告|花絮|混剪/i;
+const genericDiscoveryTitle = /^(?:short\s*drama|mini\s*drama|full\s*episode|full\s*series|serie\s*completa|watch\s*free|episode\s*\d+|part\s*\d+)$/i;
+const shortDramaEvidence = /\b(short\s*drama|mini\s*drama|reelshort|dramabox|dramadash|dramawave|full\s*series|full\s*episodes?|serie\s*completa|engsub|english\s*sub)\b|短剧|短劇|全集|全剧|完整版/i;
 const allowedSuffix = /(?:full(?:\s*(?:ep|episode|episodes|movie|series))?|complete(?:\s*series)?|all\s*episodes?|全集|完整版|全剧|\|\s*(?:reelshort|dramabox|netshort))*/gi;
 
 export function matchesExactDramaTitle(videoTitle: string, query: string) {
@@ -41,7 +43,11 @@ export function filterDailymotionVideos(videos: DailymotionVideo[], query: strin
     const key = `${normalizeText(video.title)}:${video.duration}`;
     if (seen.has(key)) return false;
     seen.add(key); return true;
-  }).slice(0, 12).map((video) => ({
+  }).slice(0, 12).map(toResource);
+}
+
+function toResource(video: DailymotionVideo): LiveSearchResource {
+  return {
     id: `dailymotion:${video.id}`,
     platformId: "dailymotion",
     title: video.title,
@@ -64,7 +70,29 @@ export function filterDailymotionVideos(videos: DailymotionVideo[], query: strin
     likeCount: video.likes_total ?? 0,
     commentCount: video.comments_total ?? 0,
     description: video.description?.trim()
-  }));
+  };
+}
+
+export function filterDailymotionDiscoveryVideos(videos: DailymotionVideo[]): LiveSearchResource[] {
+  const seen = new Set<string>();
+  return videos.filter((video) => {
+    const text = `${video.title} ${video.description ?? ""}`;
+    const title = cleanDramaTitle(video.title);
+    return video.duration >= 45 &&
+      video.status !== "deleted" &&
+      video.allow_embed !== false &&
+      video.private !== true &&
+      Boolean(video.thumbnail_360_url) &&
+      !rejected.test(text) &&
+      shortDramaEvidence.test(text) &&
+      title.length >= 6 &&
+      !genericDiscoveryTitle.test(title);
+  }).filter((video) => {
+    const key = `${normalizeText(cleanDramaTitle(video.title))}:${video.duration}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).slice(0, 30).map(toResource);
 }
 
 export async function searchDailymotion(query: string): Promise<LiveSearchResource[]> {
@@ -77,4 +105,28 @@ export async function searchDailymotion(query: string): Promise<LiveSearchResour
   if (!response.ok) throw new Error(`Dailymotion search failed: ${response.status}`);
   const payload = await response.json() as { list?: DailymotionVideo[] };
   return filterDailymotionVideos(payload.list ?? [], query);
+}
+
+export async function discoverDailymotionShortDramas(): Promise<LiveSearchResource[]> {
+  const queries = ["short drama", "reelshort drama", "dramabox drama", "vertical drama"];
+  const settled = await Promise.allSettled(queries.map(async (query) => {
+    const url = new URL("https://api.dailymotion.com/videos");
+    url.searchParams.set("search", query);
+    url.searchParams.set("fields", "id,title,description,duration,url,thumbnail_360_url,owner.username,status,allow_embed,private,views_total,likes_total,comments_total");
+    url.searchParams.set("limit", "40");
+    url.searchParams.set("sort", "visited");
+    url.searchParams.set("family_filter", "true");
+    const response = await fetch(url, { next: { revalidate: 300 }, signal: AbortSignal.timeout(8000) });
+    if (!response.ok) throw new Error(`Dailymotion discovery failed: ${response.status}`);
+    const payload = await response.json() as { list?: DailymotionVideo[] };
+    return filterDailymotionDiscoveryVideos(payload.list ?? []);
+  }));
+  const resources = settled.flatMap((item) => item.status === "fulfilled" ? item.value : []);
+  const seen = new Map<string, LiveSearchResource>();
+  for (const resource of resources) {
+    const key = normalizeText(cleanDramaTitle(resource.title));
+    const existing = seen.get(key);
+    if (!existing || (resource.viewCount ?? 0) > (existing.viewCount ?? 0)) seen.set(key, resource);
+  }
+  return [...seen.values()];
 }

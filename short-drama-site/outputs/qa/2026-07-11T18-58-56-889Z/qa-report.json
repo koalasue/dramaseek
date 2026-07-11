@@ -1,0 +1,21 @@
+{
+  "baseUrl": "http://127.0.0.1:3001",
+  "outputDir": "/Users/suziya/Documents/dramaseek/short-drama-site/outputs/qa/2026-07-11T18-58-56-889Z",
+  "screenshots": [
+    "/Users/suziya/Documents/dramaseek/short-drama-site/outputs/qa/2026-07-11T18-58-56-889Z/pc-home.png",
+    "/Users/suziya/Documents/dramaseek/short-drama-site/outputs/qa/2026-07-11T18-58-56-889Z/pc-search.png",
+    "/Users/suziya/Documents/dramaseek/short-drama-site/outputs/qa/2026-07-11T18-58-56-889Z/pc-rankings.png",
+    "/Users/suziya/Documents/dramaseek/short-drama-site/outputs/qa/2026-07-11T18-58-56-889Z/pc-watch.png",
+    "/Users/suziya/Documents/dramaseek/short-drama-site/outputs/qa/2026-07-11T18-58-56-889Z/iphone-home.png",
+    "/Users/suziya/Documents/dramaseek/short-drama-site/outputs/qa/2026-07-11T18-58-56-889Z/iphone-search.png",
+    "/Users/suziya/Documents/dramaseek/short-drama-site/outputs/qa/2026-07-11T18-58-56-889Z/iphone-rankings.png",
+    "/Users/suziya/Documents/dramaseek/short-drama-site/outputs/qa/2026-07-11T18-58-56-889Z/iphone-watch.png",
+    "/Users/suziya/Documents/dramaseek/short-drama-site/outputs/qa/2026-07-11T18-58-56-889Z/android-home.png",
+    "/Users/suziya/Documents/dramaseek/short-drama-site/outputs/qa/2026-07-11T18-58-56-889Z/android-search.png",
+    "/Users/suziya/Documents/dramaseek/short-drama-site/outputs/qa/2026-07-11T18-58-56-889Z/android-rankings.png",
+    "/Users/suziya/Documents/dramaseek/short-drama-site/outputs/qa/2026-07-11T18-58-56-889Z/android-watch.png"
+  ],
+  "errors": [
+    "Security scripts/qa-check.mjs: dangerouslySetInnerHTML requires review"
+  ]
+}

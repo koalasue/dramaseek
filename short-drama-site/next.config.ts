@@ -13,6 +13,14 @@ const nextConfig: NextConfig = {
       ,{ protocol: "https", hostname: "**.reelshort.com" }
       ,{ protocol: "https", hostname: "dramabox.com" }
       ,{ protocol: "https", hostname: "**.dramabox.com" }
+      ,{ protocol: "https", hostname: "shortdrama.st" }
+      ,{ protocol: "https", hostname: "**.shortdrama.st" }
+      ,{ protocol: "https", hostname: "free.jowo.tv" }
+      ,{ protocol: "https", hostname: "**.jowo.tv" }
+      ,{ protocol: "https", hostname: "minishort.com" }
+      ,{ protocol: "https", hostname: "**.minishort.com" }
+      ,{ protocol: "https", hostname: "dramaflows.com" }
+      ,{ protocol: "https", hostname: "**.dramaflows.com" }
     ]
   }
 };

@@ -72,7 +72,7 @@ export async function listPlatforms(): Promise<Platform[]> {
 export async function listDramas(): Promise<Drama[]> {
   const supabase = getSupabaseServer();
   if (!supabase) {
-    return fallbackDramas.map((drama) => ({ ...drama, cloudSources: fallbackCloudSources.filter((source) => source.dramaId === drama.id && source.cloudStatus !== "expired") }));
+    return [];
   }
   const { data, error } = await supabase.from("dramas").select("*, drama_aliases(value), resources(*)").eq("published", true);
   if (error || !data?.length) return fallbackDramas;
