@@ -16,8 +16,8 @@ export function Header() {
         <nav className="hidden items-center gap-5 text-sm md:flex" aria-label="主导航">
           <Link className="focus-ring rounded-md text-muted hover:text-[color:var(--ink)]" href="/">搜索</Link>
           <Link className="focus-ring rounded-md text-muted hover:text-[color:var(--ink)]" href="/rankings">排行榜</Link>
+          <Link className="focus-ring rounded-md text-muted hover:text-[color:var(--ink)]" href="/library">My Library</Link>
           <Link className="focus-ring rounded-md text-muted hover:text-[color:var(--ink)]" href="/submit">提交资源</Link>
-          <Link className="focus-ring rounded-md text-muted hover:text-[color:var(--ink)]" href="/downloads">授权下载</Link>
           <Link className="focus-ring rounded-md text-muted hover:text-[color:var(--ink)]" href="/about">收录原则</Link>
         </nav>
         <button className="focus-ring pressable rounded-lg border line p-2 md:hidden" onClick={() => setOpen(!open)} aria-label={open ? "关闭菜单" : "打开菜单"} aria-expanded={open}>
@@ -25,7 +25,7 @@ export function Header() {
         </button>
       </div>
       {open && <nav className="page-shell grid gap-1 border-t line py-2 text-sm md:hidden" aria-label="移动导航">
-        {[['/','搜索'],['/rankings','排行榜'],['/submit','提交资源'],['/downloads','授权下载'],['/about','收录原则']].map(([href,label]) => <Link key={href} href={href} onClick={() => setOpen(false)} className="rounded-lg px-3 py-2.5 hover:bg-[color:var(--surface)]">{label}</Link>)}
+        {[['/','搜索'],['/rankings','排行榜'],['/library','My Library'],['/submit','提交资源'],['/about','收录原则']].map(([href,label]) => <Link key={href} href={href} onClick={() => setOpen(false)} className="rounded-lg px-3 py-2.5 hover:bg-[color:var(--surface)]">{label}</Link>)}
       </nav>}
     </header>
   );

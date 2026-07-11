@@ -1,4 +1,5 @@
 import type { LiveSearchResource, PlaybackStatus, PlayType, Resource } from "@/lib/types";
+import { detectSourceCapability } from "@/lib/source-capability";
 
 type PlaybackTarget = Pick<Resource, "url" | "platformId" | "status" | "playType" | "playbackStatus" | "qualityScore"> | Pick<LiveSearchResource, "url" | "platformId" | "play_type" | "status" | "quality_score">;
 
@@ -35,7 +36,7 @@ export function derivePlayType(platformId: string, rawUrl: string): PlayType {
   try {
     const url = new URL(rawUrl);
     if (cloudPlatforms.has(platformId) || cloudTypeFromUrl(rawUrl)) return "cloud";
-    if (url.pathname.toLowerCase().match(/\.(mp4|webm|mov)$/)) return "direct";
+    if (url.pathname.toLowerCase().match(/\.(mp4|webm|mov|m4v|m3u8)$/)) return "direct";
     if (embedPlatforms.has(platformId)) return "embed";
     if (externalPlatforms.has(platformId)) return "external";
     return "external";
@@ -95,11 +96,11 @@ export function aiSubtitleCompatibility(platformId: string, playType: PlayType, 
   }
   if (playType === "cloud") {
     return {
-      support: "web_supported" as const,
-      label: "云盘字幕增强 ★★★★★",
-      description: "适合作为 AI 字幕增强入口：在用户授权访问文件后，可生成并缓存中文/英文/双语字幕；不会绕过云盘权限。",
-      stars: 5,
-      recommended: true,
+      support: "unavailable" as const,
+      label: "云盘播放器字幕",
+      description: "云盘备用观看不参与 AI 字幕处理；字幕交给百度网盘或夸克网盘播放器。",
+      stars: 0,
+      recommended: false,
     };
   }
   if (playType === "embed") {
@@ -107,8 +108,8 @@ export function aiSubtitleCompatibility(platformId: string, playType: PlayType, 
       support: "embed_limited" as const,
       label: "网页播放 · AI字幕受限",
       description: platformId === "dailymotion"
-        ? "可在网页播放，但外部 iframe 通常不能被网页读取；若字幕按钮受限，请改用浏览器扩展或 direct 来源。"
-        : "外部 iframe 不能被网页读取音频或画面；需要浏览器扩展才能在平台播放器上叠加字幕。",
+        ? "可作为临时预览播放，但外部 iframe 不能被网页读取字幕轨、音频或画面。"
+        : "外部 iframe 不能被网页读取音频或画面；请切换可控视频源或使用云盘备用观看。",
       stars: 2,
       recommended: false,
     };
@@ -144,5 +145,6 @@ export function normalizePlayback(target: PlaybackTarget) {
     videoId: videoIdFromUrl(target.url),
     qualityScore,
     aiSubtitle: aiSubtitleCompatibility(target.platformId, playType, status),
+    capability: detectSourceCapability({ platformId: target.platformId, playType, status, url: target.url }),
   };
 }

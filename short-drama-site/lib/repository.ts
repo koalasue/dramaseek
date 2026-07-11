@@ -1,6 +1,6 @@
 import { dramas as fallbackDramas, platforms as fallbackPlatforms, demoSubmissions } from "@/lib/seed";
 import { getSupabaseServer } from "@/lib/supabase/server";
-import type { CloudSource, CloudType, Drama, PersonalAccountConnection, PersonalAccountConnectionMode, PersonalAccountPlatform, Platform, Submission, SubmissionInput } from "@/lib/types";
+import type { CloudResourceInput, CloudSource, CloudStatus, CloudType, Drama, PersonalAccountConnection, PersonalAccountConnectionMode, PersonalAccountPlatform, Platform, Submission, SubmissionInput } from "@/lib/types";
 
 type DramaRow = {
   id: string; slug: string; title_zh: string; title_en: string; synopsis: string; poster_url: string;
@@ -14,28 +14,33 @@ type DramaRow = {
 type CloudSourceRow = {
   id: string;
   drama_id?: string | null;
-  title?: string | null;
+  episode?: number | null;
+  platform?: string | null;
   cloud_type: CloudType;
   cloud_url: string;
-  cloud_status: CloudSource["cloudStatus"];
-  subtitle_support_score: number;
-  note?: string | null;
+  cloud_status?: CloudStatus | "available" | "invalid" | null;
+  status?: CloudStatus | "available" | "invalid" | null;
   created_time: string;
-  updated_time?: string | null;
 };
+
+const fallbackCloudSources: CloudSource[] = [];
+
+function normalizeCloudStatus(value?: CloudStatus | "available" | "invalid" | null): CloudStatus {
+  if (value === "saved" || value === "processing" || value === "expired") return value;
+  if (value === "available") return "saved";
+  return "expired";
+}
 
 function mapCloudSource(row: CloudSourceRow): CloudSource {
   return {
     id: row.id,
     dramaId: row.drama_id ?? undefined,
-    title: row.title ?? undefined,
+    episode: row.episode ?? undefined,
+    platform: row.platform ?? undefined,
     cloudType: row.cloud_type,
     cloudUrl: row.cloud_url,
-    cloudStatus: row.cloud_status,
-    subtitleSupportScore: row.subtitle_support_score,
-    note: row.note ?? undefined,
+    cloudStatus: normalizeCloudStatus(row.status ?? row.cloud_status),
     createdTime: row.created_time,
-    updatedTime: row.updated_time ?? undefined,
   };
 }
 
@@ -66,15 +71,16 @@ export async function listPlatforms(): Promise<Platform[]> {
 
 export async function listDramas(): Promise<Drama[]> {
   const supabase = getSupabaseServer();
-  if (!supabase) return fallbackDramas;
+  if (!supabase) {
+    return fallbackDramas.map((drama) => ({ ...drama, cloudSources: fallbackCloudSources.filter((source) => source.dramaId === drama.id && source.cloudStatus !== "expired") }));
+  }
   const { data, error } = await supabase.from("dramas").select("*, drama_aliases(value), resources(*)").eq("published", true);
   if (error || !data?.length) return fallbackDramas;
   const dramas = (data as DramaRow[]).map(mapDrama).map((drama) => ({ ...drama, resources: drama.resources.filter((resource) => resource.status !== "unavailable" && resource.official) }));
   const { data: cloudRows } = await supabase
     .from("cloud_sources")
     .select("*")
-    .eq("approved", true)
-    .in("cloud_status", ["available", "processing"])
+    .in("cloud_status", ["saved", "available", "processing"])
     .order("created_time", { ascending: false });
   if (!cloudRows?.length) return dramas;
   const byDrama = new Map<string, CloudSource[]>();
@@ -89,6 +95,44 @@ export async function listDramas(): Promise<Drama[]> {
 
 export async function getDramaBySlug(slug: string) {
   return (await listDramas()).find((item) => item.slug === slug) ?? null;
+}
+
+export async function listCloudResources(): Promise<CloudSource[]> {
+  const supabase = getSupabaseServer();
+  if (!supabase) return [...fallbackCloudSources].sort((a, b) => b.createdTime.localeCompare(a.createdTime));
+  const { data, error } = await supabase.from("cloud_sources").select("*").order("created_time", { ascending: false });
+  if (error || !data) return [];
+  return (data as CloudSourceRow[]).map(mapCloudSource);
+}
+
+export async function createCloudResource(input: CloudResourceInput): Promise<CloudSource> {
+  const now = new Date().toISOString();
+  const fallback: CloudSource = {
+    id: crypto.randomUUID(),
+    dramaId: input.dramaId,
+    episode: input.episode,
+    platform: input.platform,
+    cloudType: input.cloudType,
+    cloudUrl: input.cloudUrl,
+    cloudStatus: input.status ?? "saved",
+    createdTime: now,
+  };
+  const supabase = getSupabaseServer();
+  if (!supabase) {
+    fallbackCloudSources.unshift(fallback);
+    return fallback;
+  }
+  const { data, error } = await supabase.from("cloud_sources").insert({
+    drama_id: input.dramaId ?? null,
+    episode: input.episode ?? null,
+    platform: input.platform ?? null,
+    cloud_type: input.cloudType,
+    cloud_url: input.cloudUrl,
+    cloud_status: input.status ?? "saved",
+    approved: true,
+  }).select().single();
+  if (error) throw new Error(error.message);
+  return mapCloudSource(data as CloudSourceRow);
 }
 
 export async function createSubmission(input: SubmissionInput): Promise<Submission> {

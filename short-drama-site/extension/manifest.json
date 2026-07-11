@@ -6,15 +6,21 @@
   "permissions": ["tabCapture", "offscreen", "storage", "activeTab"],
   "host_permissions": [
     "*://*.youtube.com/*", "*://*.dailymotion.com/*", "*://*.reelshort.com/*",
-    "*://*.dramabox.com/*", "*://*.netshort.com/*", "*://*.tiktok.com/*"
+    "*://*.dramabox.com/*", "*://*.netshort.com/*", "*://*.shortmax.com/*",
+    "*://*.goodshort.com/*", "*://*.flextv.com/*", "*://*.tiktok.com/*",
+    "http://127.0.0.1/*", "http://localhost/*", "https://*/*"
   ],
   "background": { "service_worker": "background.js", "type": "module" },
   "content_scripts": [{
-    "matches": ["*://*.youtube.com/*", "*://*.dailymotion.com/*", "*://*.reelshort.com/*", "*://*.dramabox.com/*", "*://*.netshort.com/*", "*://*.tiktok.com/*"],
-    "js": ["content.js"], "run_at": "document_idle"
+    "matches": [
+      "*://*.youtube.com/*", "*://*.dailymotion.com/*", "*://*.reelshort.com/*",
+      "*://*.dramabox.com/*", "*://*.netshort.com/*", "*://*.shortmax.com/*",
+      "*://*.goodshort.com/*", "*://*.flextv.com/*", "*://*.tiktok.com/*"
+    ],
+    "js": ["content.js"], "run_at": "document_idle", "all_frames": true
   }],
   "web_accessible_resources": [{ "resources": ["*.wasm"], "matches": ["<all_urls>"] }],
   "content_security_policy": {
-    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; connect-src 'self' https://huggingface.co https://cdn-lfs.huggingface.co https://*.xethub.hf.co"
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; connect-src 'self' http://127.0.0.1:* http://localhost:* https://*"
   }
 }

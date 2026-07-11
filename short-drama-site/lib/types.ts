@@ -3,7 +3,7 @@ export type ResourceStatus = "active" | "limited" | "unavailable";
 export type PlayType = "direct" | "embed" | "external" | "cloud" | "unavailable";
 export type PlaybackStatus = "available" | "login_required" | "expired" | "private";
 export type CloudType = "baidu" | "quark";
-export type CloudStatus = "available" | "processing" | "expired" | "invalid";
+export type CloudStatus = "saved" | "processing" | "expired";
 
 export interface Platform {
   id: string;
@@ -77,14 +77,21 @@ export interface Source {
 export interface CloudSource {
   id: string;
   dramaId?: string;
-  title?: string;
+  episode?: number;
+  platform?: string;
   cloudType: CloudType;
   cloudUrl: string;
   cloudStatus: CloudStatus;
-  subtitleSupportScore: number;
-  note?: string;
   createdTime: string;
-  updatedTime?: string;
+}
+
+export interface CloudResourceInput {
+  dramaId?: string;
+  episode?: number;
+  platform?: string;
+  cloudType: CloudType;
+  cloudUrl: string;
+  status?: CloudStatus;
 }
 
 export interface SearchFilters {

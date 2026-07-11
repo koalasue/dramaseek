@@ -37,7 +37,7 @@ export function AvailableSources({ title, currentUrl, platform }: { title: strin
         const canWatchHere = playback.playType === "embed" && playback.status === "available";
         return <article key={resource.id} className="surface-strong rounded-xl border line p-3">
           <div className="flex items-start justify-between gap-3"><div><h3 className="text-sm font-semibold">{resource.platformId}</h3><p className="mt-1 text-xs text-muted">{playback.watchMode} · {playback.status === "login_required" ? "需要官方账号" : playback.label} · Quality {playback.qualityScore}</p></div><span className="rounded-full bg-[color:var(--surface)] px-2 py-1 text-[11px] font-semibold">{playback.playType}</span></div>
-          <p className="mt-2 rounded-lg bg-[color:var(--surface)] px-2 py-1.5 text-[11px] font-medium text-muted">{playback.aiSubtitle.label} · Subtitle Support {"★".repeat(playback.aiSubtitle.stars)}{"☆".repeat(5 - playback.aiSubtitle.stars)}</p>
+          <p className="mt-2 rounded-lg bg-[color:var(--surface)] px-2 py-1.5 text-[11px] font-medium text-muted">{playback.capability.can_generate_subtitle ? "在线 AI 字幕：可用" : playback.playType === "cloud" ? "云盘观看：备用" : "官方平台：原始播放"}</p>
           <Link href={canWatchHere ? `/watch?url=${encodeURIComponent(resource.url)}&title=${encodeURIComponent(title)}` : resource.url} target={canWatchHere ? undefined : "_blank"} rel={canWatchHere ? undefined : "noreferrer"} className="focus-ring pressable mt-3 inline-flex min-h-10 items-center gap-2 rounded-lg border line px-3 text-xs font-semibold">{canWatchHere ? <PlayCircle size={15} weight="fill"/> : <ArrowSquareOut size={15}/>} {playback.status === "login_required" ? "Open Platform" : playback.label}</Link>
         </article>;
       })}

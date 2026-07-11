@@ -106,7 +106,7 @@ export function SubtitleTestWorkbench() {
         </table>
       </div>
       <div className="mt-4 rounded-xl bg-[color:var(--surface-strong)] p-3 text-xs leading-5 text-muted">
-        如果本地上传视频仍无结果：请先点击视频播放，再点字幕按钮；外部平台视频如果浏览器无法直接读取音轨，电脑端请选择“共享当前标签页并勾选共享音频”，手机端请允许麦克风权限并调高视频音量。OCR 只作为手动备用，不会默认识别画面文字。
+        如果本地上传视频仍无结果：请先点击视频播放，再点字幕按钮；浏览器无法直接读取音轨时，电脑端可选择共享当前标签页并勾选共享音频，手机端请允许麦克风权限并调高视频音量。OCR 只用于可控 video，不识别第三方 iframe 画面。
       </div>
     </div>
   </section>;

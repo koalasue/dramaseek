@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ArrowClockwise, WarningCircle } from "@phosphor-icons/react";
 import { WatchToolbar, type WatchEpisode } from "@/components/watch-toolbar";
+import { SubtitleStatusPanel } from "@/components/subtitle-status-panel";
 
 function embedUrl(value: string) {
   const url = new URL(value);
@@ -13,7 +14,7 @@ function embedUrl(value: string) {
   return value;
 }
 
-export function WatchExperience({ initialUrl, title }: { initialUrl: string; title: string }) {
+export function WatchExperience({ initialUrl, title, controllable = false, subtitleUrl }: { initialUrl: string; title: string; controllable?: boolean; subtitleUrl?: string }) {
   const [currentUrl, setCurrentUrl] = useState(initialUrl);
   const [episodes, setEpisodes] = useState<WatchEpisode[]>([{ id: "current", label: "当前资源 / 全集", url: initialUrl, downloadable: false }]);
   const [loading, setLoading] = useState(true);
@@ -29,13 +30,26 @@ export function WatchExperience({ initialUrl, title }: { initialUrl: string; tit
     finally { setLoading(false); }
   }, [initialUrl]);
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    const key = "dramaseek:watch-history";
+    try {
+      const saved = JSON.parse(localStorage.getItem(key) ?? "[]") as Array<{ url: string }>;
+      const next = [{ url: initialUrl, title, watchedAt: new Date().toISOString() }, ...saved.filter((item) => item.url !== initialUrl)].slice(0, 30);
+      localStorage.setItem(key, JSON.stringify(next));
+    } catch {
+      // Local watch history is optional.
+    }
+  }, [initialUrl, title]);
 
   if (unavailable) return <div className="surface mx-auto max-w-xl rounded-2xl border line p-7 text-center"><WarningCircle size={34} className="mx-auto text-muted"/><h2 className="mt-4 text-lg font-semibold">视频暂时无法播放</h2><p className="mt-2 text-sm text-muted">{unavailable}</p><div className="mt-5 flex justify-center gap-3"><button onClick={() => void load()} className="focus-ring pressable inline-flex min-h-11 items-center gap-2 rounded-xl border line px-4 text-sm font-medium"><ArrowClockwise size={17}/>重新检测</button><a href={initialUrl} target="_blank" rel="noopener noreferrer" className="focus-ring accent-bg inline-flex min-h-11 items-center rounded-xl px-4 text-sm font-semibold">前往官方页面</a></div></div>;
 
   return <>
     <div className="relative mx-auto aspect-[9/16] max-h-[78vh] w-full max-w-[560px] overflow-hidden rounded-2xl bg-black shadow-2xl">
-      <iframe key={currentUrl} data-video-frame src={embedUrl(currentUrl)} title={title} allow="autoplay; encrypted-media; fullscreen; picture-in-picture" allowFullScreen className="h-full w-full border-0"/>
+      {controllable
+        ? <video key={currentUrl} data-video-frame src={currentUrl} title={title} controls playsInline crossOrigin="anonymous" className="h-full w-full bg-black object-contain"/>
+        : <iframe key={currentUrl} data-video-frame src={embedUrl(currentUrl)} title={title} allow="autoplay; encrypted-media; fullscreen; picture-in-picture" allowFullScreen className="h-full w-full border-0"/>}
     </div>
-    <WatchToolbar episodes={episodes} activeUrl={currentUrl} loading={loading} onSelect={(episode) => setCurrentUrl(episode.url)} />
+    <SubtitleStatusPanel controllable={controllable} subtitleUrl={subtitleUrl} />
+    <WatchToolbar episodes={episodes} activeUrl={currentUrl} loading={loading} onSelect={(episode) => setCurrentUrl(episode.url)} subtitleMode={controllable ? "native" : "external"} />
   </>;
 }

@@ -15,6 +15,29 @@ export const revalidate = 0;
 
 const platformRankingOrder = ["dailymotion", "youtube", "reelshort", "dramabox", "netshort", "shortmax", "goodshort", "flextv", "tiktok"];
 const discoveryPlatforms = ["reelshort", "dramabox", "shortmax", "goodshort", "flextv", "netshort"] as const;
+const rankingsCacheTtlMs = 5 * 60 * 1000;
+
+type RankingsPayload = {
+  globalTrending: ReturnType<typeof toGlobalRankingEntry>[];
+  panels: Array<{ id: string; name: string; mode: string; entries: ReturnType<typeof toRankingEntry>[] }>;
+  platformTrends: ReturnType<typeof buildPlatformTrends>;
+  comingSoonPlatforms: never[];
+  dramaTrends: ReturnType<typeof buildDramaTrend>[];
+  tiktokTrendAnalysis: ReturnType<typeof buildTikTokTrendAnalysis>;
+  quality: {
+    eligible: number;
+    rejected: number;
+    minimumConfidence: number;
+    blockedReason: string;
+  };
+  sampleJson: ReturnType<typeof toGlobalRankingEntry>[];
+  updatedAt: string;
+  firecrawlEnabled: boolean;
+  serpApiEnabled: boolean;
+  youtubeApiEnabled: boolean;
+};
+
+let rankingsCache: { expiresAt: number; payload: RankingsPayload } | null = null;
 
 function hotTrendLabel(resource: LiveSearchResource) {
   if (resource.trend_direction === "UP") return "Rising";
@@ -65,6 +88,29 @@ function toRankingEntry(resource: LiveSearchResource, platforms: Platform[]) {
     source_type: resource.source_type,
     official_source: resource.official_source,
     source_url: resource.source_url,
+  };
+}
+
+function toGlobalRankingEntry(resource: LiveSearchResource, platforms: Platform[], index: number) {
+  const metadata = buildDramaMetadata(resource);
+  const playback = normalizePlayback(resource);
+  return {
+    ...metadata,
+    rank: index + 1,
+    cover: resource.thumbnailUrl,
+    platform: platformName(platforms, resource.platformId),
+    platformId: resource.platformId,
+    hot_score: resource.hot_score ?? 0,
+    trend: hotTrendLabel(resource),
+    trend_direction: resource.trend_direction ?? "STABLE",
+    confidence_score: resource.confidence_score ?? 0,
+    source_type: resource.source_type,
+    official_source: resource.official_source,
+    source_url: resource.source_url,
+    play_type: playback.playType,
+    status: playback.status,
+    quality_score: playback.qualityScore,
+    episodes: metadata.episodes,
   };
 }
 
@@ -156,7 +202,7 @@ function buildTikTokTrendAnalysis() {
   };
 }
 
-export async function GET() {
+async function buildRankingsPayload(): Promise<RankingsPayload> {
   const platforms = await listPlatforms();
   const [seedResources, broadResources] = await Promise.all([discoverSeedResources(), discoverBroadResources()]);
   const enriched = dedupeRankingResources([...seedResources, ...broadResources].map((resource, index) => enrichRankingResource(resource, index)));
@@ -174,45 +220,42 @@ export async function GET() {
 
   const platformTrends = buildPlatformTrends(platforms, eligible, enriched);
 
-  const globalTrending = eligible.slice(0, 100).map((resource, index) => ({
-    ...buildDramaMetadata(resource),
-    rank: index + 1,
-    cover: resource.thumbnailUrl,
-    platform: platformName(platforms, resource.platformId),
-    platformId: resource.platformId,
-    hot_score: resource.hot_score ?? 0,
-    trend: hotTrendLabel(resource),
-    trend_direction: resource.trend_direction ?? "STABLE",
-    confidence_score: resource.confidence_score ?? 0,
-    source_type: resource.source_type,
-    official_source: resource.official_source,
-    source_url: resource.source_url,
-    play_type: normalizePlayback(resource).playType,
-    status: normalizePlayback(resource).status,
-    quality_score: normalizePlayback(resource).qualityScore,
-    episodes: buildDramaMetadata(resource).episodes,
-  }));
+  const globalTrending = eligible.slice(0, 100).map((resource, index) => toGlobalRankingEntry(resource, platforms, index));
 
-  return NextResponse.json(
-    {
-      globalTrending,
-      panels,
-      platformTrends,
-      comingSoonPlatforms: [],
-      dramaTrends,
-      tiktokTrendAnalysis: buildTikTokTrendAnalysis(),
-      quality: {
-        eligible: eligible.length,
-        rejected: rejected.length,
-        minimumConfidence: 70,
-        blockedReason: "普通搜索结果、SEO页面、非官方频道、解说/剪辑/预告、无封面或低可信内容不会进入 Global Short Drama Ranking。",
-      },
-      sampleJson: globalTrending.slice(0, 12),
-      updatedAt: new Date().toISOString(),
-      firecrawlEnabled: Boolean(process.env.FIRECRAWL_API_KEY),
-      serpApiEnabled: Boolean(process.env.SERPAPI_KEY),
-      youtubeApiEnabled: Boolean(process.env.YOUTUBE_API_KEY),
+  return {
+    globalTrending,
+    panels,
+    platformTrends,
+    comingSoonPlatforms: [],
+    dramaTrends,
+    tiktokTrendAnalysis: buildTikTokTrendAnalysis(),
+    quality: {
+      eligible: eligible.length,
+      rejected: rejected.length,
+      minimumConfidence: 70,
+      blockedReason: "普通搜索结果、SEO页面、非官方频道、解说/剪辑/预告、无封面或低可信内容不会进入 Global Short Drama Ranking。",
     },
-    { headers: { "Cache-Control": "no-store, max-age=0" } }
-  );
+    sampleJson: globalTrending.slice(0, 12),
+    updatedAt: new Date().toISOString(),
+    firecrawlEnabled: Boolean(process.env.FIRECRAWL_API_KEY),
+    serpApiEnabled: Boolean(process.env.SERPAPI_KEY),
+    youtubeApiEnabled: Boolean(process.env.YOUTUBE_API_KEY),
+  };
+}
+
+export async function GET(request: Request) {
+  const forceRefresh = new URL(request.url).searchParams.get("refresh") === "1";
+  const now = Date.now();
+  const cached = !forceRefresh && rankingsCache && rankingsCache.expiresAt > now ? rankingsCache : null;
+  const cacheHit = Boolean(cached);
+  const payload = cached ? cached.payload : await buildRankingsPayload();
+
+  if (!cacheHit) rankingsCache = { payload, expiresAt: now + rankingsCacheTtlMs };
+
+  return NextResponse.json(payload, {
+    headers: {
+      "Cache-Control": "no-store, max-age=0",
+      "X-DramaSeek-Cache": cacheHit ? "HIT" : "MISS",
+    },
+  });
 }

@@ -10,6 +10,7 @@ import { cleanDramaTitle, shortDescription } from "@/lib/rankings/metadata";
 import { normalizePlayback } from "@/lib/playback";
 import { PlatformMark } from "@/components/platform-mark";
 import { PlatformSearchFallback } from "@/components/platform-search-fallback";
+import { matchDramaEntity } from "@/lib/drama-entity";
 
 const recentSearchesKey = "dramaseek:recent-searches";
 type RecentSearch = { keyword: string; time: string };
@@ -24,6 +25,7 @@ export function SearchExperience({ dramas, platforms, initialQuery = "", initial
   const [liveLoading, setLiveLoading] = useState(false);
   const [platformStatus, setPlatformStatus] = useState<LiveSearchResponse["platformStatus"]>({});
   const [recentSearches, setRecentSearches] = useState<RecentSearch[]>([]);
+  const platformById = useMemo(() => new Map(platforms.map((item) => [item.id, item])), [platforms]);
   const orderedPlatforms = useMemo(() => [...platforms].sort((a, b) => {
     const left = platformTabOrder.indexOf(a.slug);
     const right = platformTabOrder.indexOf(b.slug);
@@ -34,10 +36,10 @@ export function SearchExperience({ dramas, platforms, initialQuery = "", initial
   const visibleLive = useMemo(() => liveResources.filter((resource) => platform === "all" || resource.platformId === platform), [liveResources, platform]);
   const counts = useMemo(() => {
     const values: Record<string, number> = Object.fromEntries(platforms.map((item) => [item.slug, 0]));
-    allIndexedResults.forEach((drama) => drama.resources.forEach((resource) => { const item = platforms.find((entry) => entry.id === resource.platformId); if (item) values[item.slug] = (values[item.slug] ?? 0) + 1; }));
-    liveResources.forEach((resource) => { const item = platforms.find((entry) => entry.id === resource.platformId); if (item) values[item.slug] = (values[item.slug] ?? 0) + 1; });
+    allIndexedResults.forEach((drama) => drama.resources.forEach((resource) => { const item = platformById.get(resource.platformId); if (item) values[item.slug] = (values[item.slug] ?? 0) + 1; }));
+    liveResources.forEach((resource) => { const item = platformById.get(resource.platformId); if (item) values[item.slug] = (values[item.slug] ?? 0) + 1; });
     return values;
-  }, [allIndexedResults, liveResources, platforms]);
+  }, [allIndexedResults, liveResources, platformById, platforms]);
   const totalCount = Object.values(counts).reduce((sum, value) => sum + value, 0);
 
   useEffect(() => {
@@ -107,15 +109,14 @@ export function SearchExperience({ dramas, platforms, initialQuery = "", initial
 
       <div className="mt-4 flex items-baseline justify-between gap-4"><h2 className="text-base font-semibold tracking-tight md:text-lg">{query ? `“${query}” 的结果` : "热门短剧"}</h2><p className="text-xs text-muted">{results.length + visibleLive.length} 条资源</p></div>
       {liveLoading && <div className="surface mt-3 rounded-xl border line p-4"><div className="h-3 w-32 animate-pulse rounded bg-[color:var(--surface-strong)]"/><div className="mt-3 h-20 animate-pulse rounded-lg bg-[color:var(--surface-strong)]"/></div>}
-      {!liveLoading && visibleLive.length > 0 && <div className="mt-3 grid gap-2">{visibleLive.map((resource) => { const livePlatform = platforms.find((item) => item.id === resource.platformId); const cleanedTitle = cleanDramaTitle(resource.title); const playback = normalizePlayback(resource); const description = shortDescription({ title: resource.title, description: resource.description, genre: resource.genre, cleanTitle: cleanedTitle }); return <article key={resource.id} className="result-enter surface grid grid-cols-[70px_minmax(0,1fr)] gap-3 rounded-xl border line p-3 md:grid-cols-[90px_minmax(0,1fr)_auto] md:items-center">
+      {!liveLoading && visibleLive.length > 0 && <div className="mt-3 grid gap-2">{visibleLive.map((resource) => { const livePlatform = platformById.get(resource.platformId); const cleanedTitle = cleanDramaTitle(resource.title); const matchedDrama = matchDramaEntity(dramas, cleanedTitle); const playback = normalizePlayback(resource); const description = shortDescription({ title: resource.title, description: resource.description, genre: resource.genre, cleanTitle: cleanedTitle }); return <article key={resource.id} className="result-enter surface grid grid-cols-[70px_minmax(0,1fr)] gap-3 rounded-xl border line p-3 md:grid-cols-[90px_minmax(0,1fr)_auto] md:items-center">
         <div className="relative h-[100px] overflow-hidden rounded-lg bg-[color:var(--surface-strong)] md:h-[130px]">{resource.thumbnailUrl && <Image src={resource.thumbnailUrl} alt={`${resource.title} 封面`} fill sizes="(max-width: 640px) 70px, 90px" className="object-cover" />}</div>
-        <div className="min-w-0"><div className="flex flex-wrap gap-1.5 text-[11px] text-muted"><span>{livePlatform?.name ?? "平台"}</span>{resource.durationSeconds != null && <span>{Math.round(resource.durationSeconds / 60)} 分钟</span>}<span>{resource.contentType === "full_series" ? "完整合集" : "剧集页面"}</span><span>{playback.label}</span><span>{playback.aiSubtitle.label}</span></div><h3 className="mt-1 line-clamp-2 text-sm font-semibold leading-5 md:text-base">{cleanedTitle}</h3><p className="mt-1 line-clamp-2 text-xs leading-5 text-muted">{description}</p><p className="mt-1.5 truncate text-[11px] text-muted">来源：{resource.uploader} · Quality {playback.qualityScore}</p></div>
-        <div className="col-span-2 flex justify-end md:col-span-1"><Link href={`/watch?url=${encodeURIComponent(resource.url)}&title=${encodeURIComponent(cleanedTitle)}`} className="focus-ring pressable inline-flex min-h-10 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border line px-3 text-xs font-semibold">{playback.label}<ArrowSquareOut size={15}/></Link></div>
+        <div className="min-w-0"><div className="flex flex-wrap gap-1.5 text-[11px] text-muted"><span>{livePlatform?.name ?? "平台"}</span>{resource.durationSeconds != null && <span>{Math.round(resource.durationSeconds / 60)} 分钟</span>}<span>{resource.contentType === "full_series" ? "完整合集" : "剧集页面"}</span><span>{playback.watchMode}</span>{matchedDrama ? <span>已合并实体</span> : <span>资源候选</span>}</div>{matchedDrama ? <Link href={`/drama/${matchedDrama.slug}`} className="focus-ring mt-1 block rounded-md"><h3 className="line-clamp-2 text-sm font-semibold leading-5 md:text-base">{matchedDrama.titleEn || cleanedTitle}</h3></Link> : <h3 className="mt-1 line-clamp-2 text-sm font-semibold leading-5 md:text-base">{cleanedTitle}</h3>}<p className="mt-1 line-clamp-2 text-xs leading-5 text-muted">{description}</p><p className="mt-1.5 truncate text-[11px] text-muted">来源：{resource.uploader} · Quality {playback.qualityScore}</p></div>
+        <div className="col-span-2 flex flex-wrap justify-end gap-2 md:col-span-1">{matchedDrama && <Link href={`/drama/${matchedDrama.slug}#resource-search`} className="focus-ring accent-bg pressable inline-flex min-h-10 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-3 text-xs font-semibold">查看详情<ArrowRight size={15}/></Link>}<Link href={`/watch?url=${encodeURIComponent(resource.url)}&title=${encodeURIComponent(matchedDrama?.titleEn || cleanedTitle)}`} className="focus-ring pressable inline-flex min-h-10 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border line px-3 text-xs font-semibold">播放预览<ArrowSquareOut size={15}/></Link></div>
       </article>})}</div>}
       {results.length ? <div className="mt-3 grid gap-2 md:grid-cols-2">
         {results.map((drama, index) => {
-          const hasCloudSource = drama.cloudSources?.some((source) => source.cloudStatus === "available" || source.cloudStatus === "processing");
-          const hasStrongSubtitleSource = drama.resources.some((resource) => normalizePlayback(resource).aiSubtitle.recommended);
+          const hasCloudSource = drama.cloudSources?.some((source) => source.cloudStatus === "saved" || source.cloudStatus === "processing");
           return <article key={drama.id} style={{ animationDelay: `${index * 30}ms` }} className="result-enter surface group grid grid-cols-[70px_minmax(0,1fr)] gap-3 rounded-xl border line p-3 md:grid-cols-[90px_minmax(0,1fr)]">
           <Link href={`/drama/${drama.slug}`} className="relative h-[100px] overflow-hidden rounded-lg md:h-[130px]" aria-label={`查看 ${drama.titleZh}`}>
             <Image src={drama.posterUrl} alt={`${drama.titleZh}海报`} fill sizes="(max-width: 640px) 70px, 90px" className="object-cover transition-transform duration-300 group-hover:scale-[1.03]" />
@@ -124,9 +125,9 @@ export function SearchExperience({ dramas, platforms, initialQuery = "", initial
             <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted"><span className="inline-flex items-center gap-1"><SealCheck size={13} weight="fill" className="accent" />正版</span><span>{drama.episodeCount ? `${drama.episodeCount} 集` : "集数待确认"}</span><span>{drama.languages.map((item) => item.toUpperCase()).join(" / ")}</span></div>
             <Link href={`/drama/${drama.slug}`} className="focus-ring mt-1 block rounded-md"><h3 className="line-clamp-2 text-sm font-semibold leading-5 md:text-base">{/[A-Za-z]/.test(query) && !/[\p{Script=Han}]/u.test(query) ? drama.titleEn : drama.titleZh}</h3><p className="mt-0.5 truncate text-xs text-muted">{/[A-Za-z]/.test(query) && !/[\p{Script=Han}]/u.test(query) ? drama.titleZh : drama.titleEn}</p></Link>
             <p className="mt-1.5 line-clamp-2 text-xs leading-5 text-muted">{drama.synopsis}</p>
-            {hasCloudSource && !hasStrongSubtitleSource && <p className="mt-2 rounded-lg bg-[color:var(--surface-strong)] px-2 py-1.5 text-[11px] font-medium text-muted">推荐观看方式：☁️ 云盘观看，可获得更完整的 AI 中文字幕体验。</p>}
-            <div className="mt-2 flex flex-wrap gap-1.5">{drama.resources.slice(0, 3).map((resource) => { const item = platforms.find((entry) => entry.id === resource.platformId); return item ? <span key={resource.id} className="rounded-md border line px-2 py-1 text-[11px]"><PlatformMark platform={item} compact /></span> : null; })}</div>
-            {!!drama.cloudSources?.length && <div className="mt-1.5 flex flex-wrap gap-1.5">{drama.cloudSources.slice(0, 2).map((source) => <span key={source.id} className="rounded-md border line px-2 py-1 text-[11px]">{source.cloudType === "baidu" ? "百度网盘" : "夸克网盘"} · 字幕★★★★★</span>)}</div>}
+            {hasCloudSource && <p className="mt-2 rounded-lg bg-[color:var(--surface-strong)] px-2 py-1.5 text-[11px] font-medium text-muted">☁️ 已有个人云盘备份，适合长期保存和稳定观看。</p>}
+            <div className="mt-2 flex flex-wrap gap-1.5">{drama.resources.slice(0, 3).map((resource) => { const item = platformById.get(resource.platformId); return item ? <span key={resource.id} className="rounded-md border line px-2 py-1 text-[11px]"><PlatformMark platform={item} compact /></span> : null; })}</div>
+            {!!drama.cloudSources?.length && <div className="mt-1.5 flex flex-wrap gap-1.5">{drama.cloudSources.slice(0, 2).map((source) => <span key={source.id} className="rounded-md border line px-2 py-1 text-[11px]">{source.cloudType === "baidu" ? "百度网盘" : "夸克网盘"} · {source.cloudStatus === "saved" ? "已备份" : source.cloudStatus === "processing" ? "处理中" : "已失效"}</span>)}</div>}
             <Link href={`/drama/${drama.slug}`} className="focus-ring mt-2 inline-flex items-center gap-1 rounded-md text-xs font-semibold text-[color:var(--accent)]">查看来源<ArrowRight size={14} /></Link>
           </div>
         </article>;

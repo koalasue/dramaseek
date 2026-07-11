@@ -1,4 +1,5 @@
 import type { Drama, Platform, SearchFilters, SearchResult } from "@/lib/types";
+import { inferGenres } from "@/lib/rankings/quality";
 
 export function normalizeText(value: string) {
   return value.normalize("NFKC").toLocaleLowerCase().replace(/[\s\p{P}\p{S}]+/gu, "");
@@ -21,7 +22,9 @@ export function similarity(left: string, right: string) {
 export function scoreDrama(drama: Drama, query: string) {
   if (!query.trim()) return drama.trendingScore / 100;
   const needle = normalizeText(query);
-  const fields = [drama.titleZh, drama.titleEn, ...drama.aliases];
+  const genre = drama.genre?.length ? drama.genre : inferGenres({ title: `${drama.titleEn} ${drama.titleZh}`, description: drama.synopsis });
+  const platforms = drama.resources.flatMap((resource) => [resource.platformId, resource.platform ?? ""]).filter(Boolean);
+  const fields = [drama.titleZh, drama.titleEn, drama.synopsis, drama.description ?? "", ...(drama.aliases ?? []), ...genre, ...platforms];
   return Math.max(...fields.map((field, index) => {
     const value = normalizeText(field);
     if (value === needle) return index < 2 ? 1.2 : 1.1;
@@ -36,7 +39,6 @@ export function searchDramas(items: Drama[], platformItems: Platform[], filters:
     : undefined;
   return items
     .map((drama) => ({ ...drama, score: scoreDrama(drama, filters.query ?? "") }))
-    .filter((drama) => drama.resources.some((resource) => resource.official && resource.status !== "unavailable" && Boolean(resource.sourceProof)) || Boolean(drama.cloudSources?.some((source) => source.cloudStatus === "available" || source.cloudStatus === "processing")))
     .filter((drama) => !filters.query?.trim() || drama.score >= 0.2)
     .filter((drama) => !platformId || drama.resources.some((resource) => resource.platformId === platformId && resource.status !== "unavailable"))
     .filter((drama) => !filters.language || filters.language === "all" || drama.languages.includes(filters.language))

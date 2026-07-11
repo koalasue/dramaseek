@@ -5,13 +5,13 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "build:extension": "vite build --config extension/vite.config.ts",
     "start": "next start",
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@huggingface/transformers": "3.7.2",
     "@phosphor-icons/react": "^2.1.10",
     "@supabase/ssr": "^0.6.1",
     "@supabase/supabase-js": "^2.49.4",
@@ -22,6 +22,8 @@
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.1",
     "@next/eslint-plugin-next": "^15.5.20",
+    "@rollup/rollup-darwin-arm64": "4.62.2",
+    "@tailwindcss/oxide-darwin-arm64": "4.3.2",
     "@tailwindcss/postcss": "^4.0.17",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.2.0",
@@ -35,8 +37,10 @@
     "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^5.2.0",
     "jsdom": "^26.0.0",
+    "lightningcss-darwin-arm64": "1.32.0",
     "tailwindcss": "^4.0.17",
     "typescript": "^5.8.2",
+    "vite": "^7.3.6",
     "vitest": "^3.0.8"
   }
 }

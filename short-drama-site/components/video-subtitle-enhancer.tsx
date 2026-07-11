@@ -8,11 +8,15 @@ import type { SubtitleCapabilities, SubtitleCue, SubtitleSettings, TranslationSe
 
 const SAMPLE_RATE = 16_000;
 const OCR_INTERVAL_MS = 2600;
-const ASR_CHUNK_SECONDS = 3.2;
-const MIN_AUDIO_RMS = 0.012;
+const ASR_MIN_UTTERANCE_SECONDS = 1.15;
+const ASR_MAX_UTTERANCE_SECONDS = 8.5;
+const ASR_SILENCE_SECONDS = 0.72;
+const ASR_PREROLL_SECONDS = 0.35;
+const MIN_AUDIO_RMS = 0.01;
 const MIN_ASR_CONFIDENCE = 0.68;
 const garbageSubtitlePattern = /\b(thanks?\s+for\s+watching|subscribe|follow|like\s+(?:and\s+)?share|official\s+channel|trailer|episode\s+preview|preview|watermark|click\s+to\s+subscribe|turn\s+on\s+notifications?)\b|感谢观看|订阅|点赞|关注|转发|预告|片花|水印/i;
 const nonDialoguePattern = /^\s*[\[(（【]?\s*(?:cl|sound|sfx|music|door|knock|laugh|laughs|laughing|cry|crying|noise|sigh|sighs|applause|silence|breath|breathing|phone ringing|ringing|footsteps?|thunder|door opening|door closing|dramatic music|background music|音乐|笑声|哭声|噪音|开门|关门|脚步声|叹气)\b[^)\]）】]*[\])）】]?\s*$/i;
+const translationCache = new Map<string, { text: string; language: string; translated: boolean }>();
 
 type TesseractModule = {
   recognize: (image: CanvasImageSource, language?: string, options?: object) => Promise<{ data?: { text?: string; confidence?: number } }>;
@@ -36,6 +40,27 @@ function cleanSubtitleText(text: string) {
   return text.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
 }
 
+function normalizeCueText(text: string) {
+  return cleanSubtitleText(text).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+}
+
+function trimTranslationCache() {
+  if (translationCache.size <= 80) return;
+  const oldest = translationCache.keys().next().value;
+  if (oldest) translationCache.delete(oldest);
+}
+
+function isNearDuplicateCue(current: string, previous: string) {
+  if (!current || !previous) return false;
+  if (current === previous) return true;
+  const shorter = current.length < previous.length ? current : previous;
+  const longer = current.length < previous.length ? previous : current;
+  if (shorter.length >= 8 && longer.includes(shorter)) return true;
+  let commonPrefix = 0;
+  while (commonPrefix < shorter.length && current[commonPrefix] === previous[commonPrefix]) commonPrefix += 1;
+  return shorter.length >= 12 && commonPrefix / shorter.length >= 0.86;
+}
+
 function isLowQualitySubtitle(text: string) {
   const cleaned = cleanSubtitleText(text);
   if (!cleaned || cleaned.length < 2 || cleaned.length > 220) return true;
@@ -55,6 +80,9 @@ function audioRms(samples: Float32Array) {
 }
 
 async function translate(text: string) {
+  const cacheKey = normalizeCueText(text);
+  const cached = translationCache.get(cacheKey);
+  if (cached) return cached;
   try {
     const response = await fetch("/api/subtitles/translate", {
       method: "POST",
@@ -64,18 +92,34 @@ async function translate(text: string) {
     if (response.ok) {
       const payload = await response.json() as { segments?: Array<{ translatedText?: string; translated_text?: string; text?: string; language?: string }> };
       const translated = payload.segments?.[0]?.translatedText ?? payload.segments?.[0]?.translated_text;
-      if (translated) return { text: translated, language: payload.segments?.[0]?.language ?? "auto", translated: true };
+      if (translated) {
+        const output = { text: translated, language: payload.segments?.[0]?.language ?? "auto", translated: true };
+        translationCache.set(cacheKey, output);
+        trimTranslationCache();
+        return output;
+      }
     }
   } catch {
     // Fallback to browser translator below.
   }
-  if (typeof LanguageDetector === "undefined" || typeof Translator === "undefined") return { text, language: "und", translated: false };
+  if (typeof LanguageDetector === "undefined" || typeof Translator === "undefined") {
+    const output = { text, language: "und", translated: false };
+    translationCache.set(cacheKey, output);
+    return output;
+  }
   const detector = await LanguageDetector.create();
   const [result] = await detector.detect(text);
   const language = result?.detectedLanguage ?? "en";
-  if (language.startsWith("zh")) return { text, language, translated: true };
+  if (language.startsWith("zh")) {
+    const output = { text, language, translated: true };
+    translationCache.set(cacheKey, output);
+    return output;
+  }
   const translator = await Translator.create({ sourceLanguage: language, targetLanguage: "zh-Hans" });
-  return { text: await translator.translate(text), language, translated: true };
+  const output = { text: await translator.translate(text), language, translated: true };
+  translationCache.set(cacheKey, output);
+  trimTranslationCache();
+  return output;
 }
 
 type CaptureCapableVideo = HTMLVideoElement & {
@@ -180,20 +224,7 @@ function subtitleStatusLabel(status: TranslationSession["status"]) {
 
 async function createOcrSource(target: Element) {
   if (target instanceof HTMLVideoElement) return { video: target, cleanup: () => {} };
-  if (!navigator.mediaDevices.getDisplayMedia) throw new Error("当前浏览器无法截取外部平台画面，请改用音频识别");
-  const capture = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
-  const video = document.createElement("video");
-  video.muted = true;
-  video.playsInline = true;
-  video.srcObject = capture;
-  await video.play();
-  return {
-    video,
-    cleanup: () => {
-      capture.getTracks().forEach((track) => track.stop());
-      video.srcObject = null;
-    },
-  };
+  throw new Error("OCR 只支持可控 video 源，不读取第三方 iframe 画面。");
 }
 
 export function VideoSubtitleEnhancer() {
@@ -207,7 +238,10 @@ export function VideoSubtitleEnhancer() {
   const worker = useRef<Worker | null>(null), stream = useRef<MediaStream | null>(null);
   const context = useRef<AudioContext | null>(null), processor = useRef<ScriptProcessorNode | null>(null);
   const samples = useRef<number[]>([]), busy = useRef(false), dragged = useRef(false);
+  const preSpeechSamples = useRef<number[]>([]), silenceSamples = useRef(0), speechStartedAt = useRef(0);
+  const pendingAsr = useRef<{ audio: Float32Array; startedAt: number } | null>(null);
   const lastAcceptedCue = useRef<{ text: string; at: number } | null>(null);
+  const recentCueHistory = useRef<Array<{ text: string; at: number }>>([]);
   const captionCleanup = useRef<(() => void) | null>(null);
   const ocrCleanup = useRef<(() => void) | null>(null);
 
@@ -225,7 +259,8 @@ export function VideoSubtitleEnhancer() {
     ocrCleanup.current?.(); ocrCleanup.current = null;
     processor.current?.disconnect(); processor.current = null; void context.current?.close(); context.current = null;
     stream.current?.getTracks().forEach((track) => track.stop()); stream.current = null;
-    worker.current?.terminate(); worker.current = null; samples.current = []; busy.current = false; setCue(null);
+    worker.current?.terminate(); worker.current = null;
+    samples.current = []; preSpeechSamples.current = []; silenceSamples.current = 0; speechStartedAt.current = 0; pendingAsr.current = null; recentCueHistory.current = []; lastAcceptedCue.current = null; busy.current = false; setCue(null);
     setSession({ status: "idle", model: settings.model });
   }, [settings.model]);
   useEffect(() => stop, [stop]);
@@ -243,9 +278,13 @@ export function VideoSubtitleEnhancer() {
       setSession((current) => ({ ...current, status: "listening", error: "已过滤非对白、音效或片尾/水印文字。" }));
       return;
     }
-    const normalized = originalText.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+    const normalized = normalizeCueText(originalText);
     const recent = lastAcceptedCue.current;
-    if (recent && recent.text === normalized && Date.now() - recent.at < 8500) {
+    const now = Date.now();
+    recentCueHistory.current = recentCueHistory.current.filter((item) => now - item.at < 14_000);
+    const isRepeated = (recent && isNearDuplicateCue(normalized, recent.text) && now - recent.at < 8500) ||
+      recentCueHistory.current.some((item) => isNearDuplicateCue(normalized, item.text));
+    if (isRepeated) {
       setSession((current) => ({ ...current, status: "listening", error: "已过滤重复字幕。" }));
       return;
     }
@@ -266,7 +305,8 @@ export function VideoSubtitleEnhancer() {
       confidence,
       source,
     };
-    lastAcceptedCue.current = { text: normalized, at: Date.now() };
+    lastAcceptedCue.current = { text: normalized, at: now };
+    recentCueHistory.current = [{ text: normalized, at: now }, ...recentCueHistory.current].slice(0, 8);
     setCue(next);
     window.dispatchEvent(new CustomEvent("dramaseek:subtitle-cue", { detail: next }));
     setSession((current) => ({
@@ -313,7 +353,7 @@ export function VideoSubtitleEnhancer() {
       const engine = chooseSubtitleEngine(settings.sourceMode, capabilities);
       setSession({ status: "requesting", model: settings.model, engine, capabilities });
       if (engine === "limited") {
-        throw new Error(`${capabilities.reason ?? "External Source Limited"} 请切换到 Dailymotion/站内 video 等支持 AI 字幕的播放源，或使用官方平台自带字幕。`);
+        throw new Error(`${capabilities.reason ?? "External Source Limited"} 请切换到可控 video 源，或使用云盘/官方平台播放器。`);
       }
       if (engine === "vision") {
         throw new Error("Vision AI 字幕识别需要服务端视觉模型，当前播放源无法读取字幕轨、音频或画面帧。请切换支持 AI 字幕的播放源。");
@@ -340,31 +380,75 @@ export function VideoSubtitleEnhancer() {
       if (!media.getAudioTracks().length) { media.getTracks().forEach((track) => track.stop()); throw new Error("电脑请勾选“共享音频”；手机请允许麦克风收音"); }
       stream.current = media; media.getTracks().forEach((track) => track.addEventListener("ended", stop, { once: true }));
       const localWorker = new Worker(new URL("../workers/transcription.worker.ts", import.meta.url), { type: "module" }); worker.current = localWorker;
+      const model = settings.model === "accurate" || (settings.model === "auto" && (navigator.hardwareConcurrency ?? 4) >= 8) ? "accurate" : "fast";
+      const sendAsr = (audio: Float32Array, startedAt: number) => {
+        if (busy.current) {
+          pendingAsr.current = { audio, startedAt };
+          return;
+        }
+        busy.current = true;
+        localWorker.postMessage({ type: "transcribe", audio, model, startedAt }, [audio.buffer]);
+      };
+      const flushPendingAsr = () => {
+        const pending = pendingAsr.current;
+        if (!pending || worker.current !== localWorker) {
+          busy.current = false;
+          return;
+        }
+        pendingAsr.current = null;
+        localWorker.postMessage({ type: "transcribe", audio: pending.audio, model, startedAt: pending.startedAt }, [pending.audio.buffer]);
+      };
       localWorker.onmessage = async (event: MessageEvent<{ type: string; status?: TranslationSession["status"]; text?: string; startedAt?: number; error?: string }>) => {
         if (event.data.type === "status") setSession((current) => ({ ...current, status: event.data.status ?? "loading_model" }));
-        if (event.data.type === "error") { busy.current = false; setSession((current) => ({ ...current, status: "error", error: event.data.error })); }
-      if (event.data.type === "result") {
+        if (event.data.type === "error") { setSession((current) => ({ ...current, status: "error", error: event.data.error })); flushPendingAsr(); }
+        if (event.data.type === "result") {
           try {
             if (!event.data.text) return;
             await publishCue(event.data.text, "asr", event.data.startedAt ?? Date.now(), 0.86);
           } catch (error) { setSession((current) => ({ ...current, status: "error", error: error instanceof Error ? error.message : "翻译失败" })); }
-          finally { busy.current = false; }
+          finally { flushPendingAsr(); }
         }
       };
       const audio = new AudioContext(); context.current = audio;
-      const source = audio.createMediaStreamSource(media), node = audio.createScriptProcessor(4096, 1, 1); processor.current = node;
+      const source = audio.createMediaStreamSource(media), node = audio.createScriptProcessor(2048, 1, 1), silentOutput = audio.createGain(); processor.current = node;
+      silentOutput.gain.value = 0;
       const ratio = audio.sampleRate / SAMPLE_RATE;
       node.onaudioprocess = (event) => {
-        const input = event.inputBuffer.getChannelData(0); for (let i = 0; i < input.length; i += ratio) samples.current.push(input[Math.floor(i)] ?? 0);
-        if (samples.current.length >= SAMPLE_RATE * ASR_CHUNK_SECONDS && !busy.current) {
-          const chunk = Float32Array.from(samples.current.splice(0, SAMPLE_RATE * ASR_CHUNK_SECONDS));
+        const input = event.inputBuffer.getChannelData(0);
+        const frame: number[] = [];
+        for (let i = 0; i < input.length; i += ratio) frame.push(input[Math.floor(i)] ?? 0);
+        const hasSpeech = audioRms(Float32Array.from(frame)) >= MIN_AUDIO_RMS;
+        const maxPreSpeechSamples = Math.round(SAMPLE_RATE * ASR_PREROLL_SECONDS);
+        if (hasSpeech && samples.current.length === 0) {
+          speechStartedAt.current = Date.now() - Math.round(preSpeechSamples.current.length / SAMPLE_RATE * 1000);
+          samples.current.push(...preSpeechSamples.current);
+          preSpeechSamples.current = [];
+        }
+        if (hasSpeech || samples.current.length > 0) {
+          samples.current.push(...frame);
+          silenceSamples.current = hasSpeech ? 0 : silenceSamples.current + frame.length;
+        } else {
+          preSpeechSamples.current.push(...frame);
+          if (preSpeechSamples.current.length > maxPreSpeechSamples) preSpeechSamples.current.splice(0, preSpeechSamples.current.length - maxPreSpeechSamples);
+          return;
+        }
+        const minSamples = Math.round(SAMPLE_RATE * ASR_MIN_UTTERANCE_SECONDS);
+        const maxSamples = Math.round(SAMPLE_RATE * ASR_MAX_UTTERANCE_SECONDS);
+        const silenceLimit = Math.round(SAMPLE_RATE * ASR_SILENCE_SECONDS);
+        const hasEnoughSpeech = samples.current.length - silenceSamples.current >= minSamples;
+        const shouldFinalize = samples.current.length >= maxSamples || (hasEnoughSpeech && silenceSamples.current >= silenceLimit);
+        if (shouldFinalize) {
+          const trim = silenceSamples.current >= silenceLimit ? Math.min(silenceSamples.current, Math.round(SAMPLE_RATE * 0.42)) : 0;
+          const kept = samples.current.slice(0, Math.max(minSamples, samples.current.length - trim));
+          samples.current = [];
+          silenceSamples.current = 0;
+          const chunk = Float32Array.from(kept);
           if (audioRms(chunk) < MIN_AUDIO_RMS) return;
-          busy.current = true;
-          const model = settings.model === "accurate" || (settings.model === "auto" && (navigator.hardwareConcurrency ?? 4) >= 8) ? "accurate" : "fast";
-          localWorker.postMessage({ type: "transcribe", audio: chunk, model, startedAt: Date.now() }, [chunk.buffer]);
+          sendAsr(chunk, speechStartedAt.current || Date.now());
+          setSession((current) => ({ ...current, status: "loading_model", error: "已检测到一句对白，正在识别。" }));
         }
       };
-      source.connect(node); node.connect(audio.destination); setSession({ status: "listening", model: settings.model, engine: "asr", capabilities });
+      source.connect(node); node.connect(silentOutput); silentOutput.connect(audio.destination); setSession({ status: "listening", model: settings.model, engine: "asr", capabilities });
     } catch (error) {
       const message = error instanceof Error ? error.message : "无法开启实时字幕";
       stop();
