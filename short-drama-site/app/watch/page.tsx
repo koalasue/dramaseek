@@ -5,6 +5,7 @@ import { normalizePlayback } from "@/lib/playback";
 import { WatchExperience } from "@/components/watch-experience";
 import { AvailableSources } from "@/components/available-sources";
 import { CloudBackupForm } from "@/components/cloud-backup-form";
+import { DownloadTaskPanel } from "@/components/download-task-panel";
 
 function statusText(playback: ReturnType<typeof normalizePlayback>) {
   if (playback.playType === "cloud") return "已备份";
@@ -62,7 +63,7 @@ export default async function WatchPage({ searchParams }: { searchParams: Promis
         <h1 className="mt-1 text-lg font-semibold">{params.title || "海外短剧"}</h1>
       </div>
       <div className="flex flex-wrap gap-2">
-        <a href="#cloud-backup" className="focus-ring accent-bg pressable inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold"><Cloud size={16}/>Save to Cloud</a>
+        <a href="#cloud-backup" className="focus-ring accent-bg pressable inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold"><Cloud size={16}/>记录云盘链接</a>
         <a href={rawUrl} target="_blank" rel="noopener noreferrer" className="focus-ring pressable inline-flex items-center gap-2 rounded-xl border line px-4 py-2.5 text-sm font-medium">打开原始页面<ArrowSquareOut size={16}/></a>
       </div>
     </div>
@@ -87,7 +88,10 @@ export default async function WatchPage({ searchParams }: { searchParams: Promis
     {isOnline ? <WatchExperience initialUrl={rawUrl} title={params.title || "短剧播放器"} controllable={controllable} subtitleUrl={subtitleUrl} /> : <div className="surface mx-auto max-w-xl rounded-2xl border line p-7 text-center"><h2 className="text-lg font-semibold">需要前往官方平台观看</h2><p className="mt-2 text-sm text-muted">该平台通常需要账号、地区或会员权限。DramaSeek 只提供入口和云盘备用管理。</p><a href={rawUrl} target="_blank" rel="noopener noreferrer" className="focus-ring accent-bg mt-5 inline-flex min-h-11 items-center rounded-xl px-4 text-sm font-semibold">打开官方平台</a></div>}
     {!controllable && <p className="mx-auto mt-3 max-w-3xl rounded-xl bg-[color:var(--surface-strong)] px-3 py-2 text-xs leading-5 text-muted">{capability.reason} 字幕不可用时，建议使用 Cloud Player。</p>}
     <div className="mx-auto mt-4 max-w-3xl">
-      <CloudBackupForm compact platform={platform.id} />
+      <DownloadTaskPanel compact initialUrl={rawUrl} />
+    </div>
+    <div className="mx-auto mt-4 max-w-3xl">
+      <CloudBackupForm compact platform={platform.id} sourceUrl={rawUrl} />
     </div>
     <AvailableSources title={params.title || "海外短剧"} currentUrl={rawUrl} platform={platform} />
   </section>;

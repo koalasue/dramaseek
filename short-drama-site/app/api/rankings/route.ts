@@ -1,12 +1,11 @@
 import { NextResponse } from "next/server";
 import { listDramas, listPlatforms } from "@/lib/repository";
 import { agentReachEnabled, discoverWithAgentReach } from "@/lib/live-search/agent-reach";
-import { discoverAggregatorDramas } from "@/lib/live-search/aggregators";
 import { discoverDailymotionShortDramas, searchDailymotion } from "@/lib/live-search/dailymotion";
-import { searchWithFirecrawl } from "@/lib/live-search/firecrawl";
-import { searchOfficialPagesWithSerpApi } from "@/lib/live-search/serpapi";
+import { discoverWithFirecrawl, searchWithFirecrawl } from "@/lib/live-search/firecrawl";
+import { discoverOfficialPlatformPages, searchOfficialPagesWithSerpApi } from "@/lib/live-search/serpapi";
 import { discoverYouTubeShortDramas, searchYouTube } from "@/lib/live-search/youtube";
-import { dedupeRankingResources, enrichRankingResource, isEligibleRankingResource, isRejectedOfficialPlatformContent, isRejectedRankingContent } from "@/lib/rankings/quality";
+import { dedupeRankingResources, enrichRankingResource, isEligibleRankingResource, isRejectedRankingContent } from "@/lib/rankings/quality";
 import { buildDramaMetadata } from "@/lib/rankings/metadata";
 import { buildDramaTrend } from "@/lib/rankings/trends";
 import { normalizePlayback } from "@/lib/playback";
@@ -15,7 +14,8 @@ import type { LiveSearchResource, Platform } from "@/lib/types";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-const platformRankingOrder = ["shortdrama", "jowo", "minishort", "dramaflows", "dailymotion", "youtube", "reelshort", "dramabox", "netshort", "shortmax", "goodshort", "flextv", "tiktok"];
+const platformRankingOrder = ["dailymotion", "youtube", "reelshort", "dramabox", "netshort", "shortmax", "goodshort", "flextv", "tiktok"];
+const discoveryPlatforms = ["reelshort", "dramabox", "shortmax", "goodshort", "flextv", "netshort"] as const;
 const rankingsCacheTtlMs = 5 * 60 * 1000;
 
 type RankingsPayload = {
@@ -80,7 +80,7 @@ function toRankingEntry(resource: LiveSearchResource, platforms: Platform[]) {
     creators: 0,
     posterUrl: resource.thumbnailUrl,
     href: `/rankings/drama?title=${encodeURIComponent(metadata.title)}&platform=${encodeURIComponent(resource.platformId)}&cover=${encodeURIComponent(resource.thumbnailUrl)}&description=${encodeURIComponent(metadata.description)}&genre=${encodeURIComponent(metadata.genre.join(","))}&episodes=${encodeURIComponent(String(metadata.episodes ?? ""))}&hot=${encodeURIComponent(String(resource.hot_score ?? 0))}&trend=${encodeURIComponent(resource.trend_direction ?? "STABLE")}&source=${encodeURIComponent(resource.source_url ?? resource.url)}`,
-    badge: resource.source_type === "public_aggregator" ? "免费聚合" : resource.source_type === "official_channel" ? "官方频道" : "官方平台",
+    badge: resource.source_type === "official_channel" ? "官方频道" : "官方平台",
     platform: platformName(platforms, resource.platformId),
     platformId: resource.platformId,
     genre: metadata.genre,
@@ -168,9 +168,10 @@ async function discoverSeedResources() {
 async function discoverBroadResources() {
   const settled = await Promise.allSettled([
     discoverDailymotionShortDramas(),
-    discoverAggregatorDramas(),
     discoverWithAgentReach(),
+    discoverWithFirecrawl(),
     discoverYouTubeShortDramas(),
+    ...discoveryPlatforms.map((platformId) => discoverOfficialPlatformPages(platformId)),
   ]);
   return settled.flatMap((item) => item.status === "fulfilled" ? item.value : []);
 }
@@ -185,10 +186,10 @@ function buildTikTokTrendAnalysis() {
 
 function rejectedReason(resource: LiveSearchResource) {
   const evidence = `${resource.title} ${resource.description ?? ""} ${resource.uploader} ${resource.url}`;
-  if (resource.official_source ? isRejectedOfficialPlatformContent(evidence) : isRejectedRankingContent(evidence)) return "rejected_content";
+  if (isRejectedRankingContent(evidence)) return "rejected_content";
   if (!resource.title) return "missing_title";
-  if (!resource.thumbnailUrl && !resource.official_source && resource.source_type !== "public_aggregator") return "missing_cover";
-  if (!resource.official_source && resource.source_type !== "public_aggregator" && !(resource.platformId === "dailymotion" && resource.discoverySource === "official_api")) return "unverified_source";
+  if (!resource.thumbnailUrl) return "missing_cover";
+  if (!resource.official_source && !(resource.platformId === "dailymotion" && resource.discoverySource === "official_api")) return "unverified_source";
   if ((resource.confidence_score ?? 0) < 50) return "low_confidence";
   return "quality_gate";
 }
@@ -243,7 +244,7 @@ async function buildRankingsPayload(): Promise<RankingsPayload> {
       eligible: eligible.length,
       rejected: rejected.length,
       minimumConfidence: 50,
-      blockedReason: "普通 SEO 页面、解说/剪辑/预告、文章页或低可信内容不会进入榜单；免费聚合站只展示公开可访问的真实剧集入口。",
+      blockedReason: "普通 SEO 页面、解说/剪辑/预告、无封面或低可信内容不会进入榜单；Dailymotion 公开 API 的可播放条目会作为实时资源展示。",
     },
     sourceDiagnostics: buildSourceDiagnostics(enriched, eligible, rejected),
     sampleJson: globalTrending.slice(0, 12),

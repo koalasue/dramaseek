@@ -80,13 +80,8 @@ type DramaRankingItem = {
 
 const compact = new Intl.NumberFormat("zh-CN", { notation: "compact", maximumFractionDigits: 1 });
 const platformOrder = [
-  ["shortdrama", "ShortDrama.st"],
-  ["jowo", "JOWO TV"],
-  ["minishort", "MiniShort"],
-  ["dramaflows", "DramaFlows"],
   ["reelshort", "ReelShort TOP"],
   ["dramabox", "DramaBox TOP"],
-  ["netshort", "NetShort TOP"],
   ["shortmax", "ShortMax TOP"],
   ["goodshort", "GoodShort TOP"],
   ["flextv", "FlexTV TOP"],

@@ -7,6 +7,7 @@ import { getDramaBySlug, listPlatforms } from "@/lib/repository";
 import { normalizePlayback } from "@/lib/playback";
 import { PlatformMark } from "@/components/platform-mark";
 import { CloudBackupForm } from "@/components/cloud-backup-form";
+import { DownloadTaskPanel } from "@/components/download-task-panel";
 import { ResourceSearchPanel } from "@/components/resource-search-panel";
 import { toDramaEntity } from "@/lib/drama-entity";
 import type { CloudSource } from "@/lib/types";
@@ -55,6 +56,7 @@ export default async function DramaPage({ params }: { params: Promise<{ slug: st
 
         <div className="mt-5 grid gap-4">
           <ResourceSearchPanel title={drama.titleEn || drama.titleZh} aliases={[drama.titleZh, ...drama.aliases]} />
+          <DownloadTaskPanel />
           <CloudBackupForm dramaId={drama.id} />
 
           <section>

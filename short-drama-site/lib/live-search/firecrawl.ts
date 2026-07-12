@@ -24,7 +24,7 @@ const supportedPlatforms = [
   { id: "flextv", name: "FlexTV", domains: ["flextv.cc", "www.flextv.cc", "flextv.co", "www.flextv.co"] },
 ] as const;
 
-const rejectedContent = /\b(review|recap|explained|explanation|reaction|trailer|teaser|commentary|preview|clip|episode\s+only|youtube\s+compilation)\b|解说|讲解|盘点|吐槽|影评|预告|花絮|混剪|二创/i;
+const rejectedContent = /\b(review|recap|explained|explanation|reaction|trailer|teaser|commentary|preview|clip|watch\s+free|full\s+movie|movie|episode\s+only|youtube\s+compilation)\b|解说|讲解|盘点|吐槽|影评|预告|花絮|混剪|二创/i;
 const genericPages = /\/(?:search|privacy|terms|about|contact|download)(?:\/|$)/i;
 
 function platformForUrl(rawUrl: string) {

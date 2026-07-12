@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { agentReachEnabled, searchWithAgentReach } from "@/lib/live-search/agent-reach";
-import { aggregatorPlatformIds, searchAggregatorDramas } from "@/lib/live-search/aggregators";
 import { searchDailymotion } from "@/lib/live-search/dailymotion";
 import { firecrawlPlatformIds, searchWithFirecrawl } from "@/lib/live-search/firecrawl";
 import { searchOfficialPagesWithSerpApi } from "@/lib/live-search/serpapi";
@@ -16,30 +15,23 @@ export async function GET(request: NextRequest) {
     dramabox: process.env.FIRECRAWL_API_KEY || process.env.SERPAPI_KEY ? "live" : "needs_key",
     netshort: process.env.FIRECRAWL_API_KEY || process.env.SERPAPI_KEY ? "live" : "needs_key",
     dailymotion: "live",
-    shortdrama: "live",
-    jowo: "live",
-    minishort: "live",
-    dramaflows: "live",
     tiktok: process.env.SERPAPI_KEY ? "live" : "needs_key"
   };
   if (agentReachEnabled()) platformStatus.youtube = "live";
   if (!query) return NextResponse.json({ resources: [], platformStatus } satisfies LiveSearchResponse);
-  const [dailymotion, aggregators, firecrawl, serpapi, youtube, agentReach] = await Promise.allSettled([
+  const [dailymotion, firecrawl, serpapi, youtube, agentReach] = await Promise.allSettled([
     searchDailymotion(query),
-    searchAggregatorDramas(query),
     searchWithFirecrawl(query),
     searchOfficialPagesWithSerpApi(query),
     searchYouTube(query),
     searchWithAgentReach(query),
   ]);
   if (dailymotion.status === "rejected") platformStatus.dailymotion = "unavailable";
-  if (aggregators.status === "rejected") aggregatorPlatformIds.forEach((id) => { platformStatus[id] = "unavailable"; });
   if (firecrawl.status === "rejected") firecrawlPlatformIds.forEach((id) => { platformStatus[id] = "unavailable"; });
   if (serpapi.status === "rejected" && !process.env.FIRECRAWL_API_KEY) firecrawlPlatformIds.forEach((id) => { platformStatus[id] = "unavailable"; });
   if (youtube.status === "rejected") platformStatus.youtube = "unavailable";
   const resources = [
     ...(youtube.status === "fulfilled" ? youtube.value : []),
-    ...(aggregators.status === "fulfilled" ? aggregators.value : []),
     ...(dailymotion.status === "fulfilled" ? dailymotion.value : []),
     ...(firecrawl.status === "fulfilled" ? firecrawl.value : []),
     ...(serpapi.status === "fulfilled" ? serpapi.value : []),

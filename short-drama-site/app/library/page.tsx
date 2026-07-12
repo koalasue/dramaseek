@@ -45,7 +45,7 @@ export default async function LibraryPage() {
                 </span>
               </span>
             </Link>;
-          }) : <p className="rounded-lg bg-[color:var(--surface-strong)] px-3 py-4 text-sm text-muted sm:col-span-2 lg:col-span-3">还没有收藏或备份短剧。先从搜索结果进入详情页，点击“备份到云盘”。</p>}
+          }) : <p className="rounded-lg bg-[color:var(--surface-strong)] px-3 py-4 text-sm text-muted sm:col-span-2 lg:col-span-3">还没有收藏或云盘记录。先手动保存到百度网盘或夸克网盘，再回到详情页点击“记录云盘链接”。</p>}
         </div>
       </section>
 
